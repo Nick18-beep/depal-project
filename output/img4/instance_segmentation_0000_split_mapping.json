@@ -1,0 +1,124 @@
+{
+  "[140, 25, 140, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[140, 25, 140, 255]"
+  },
+  "[140, 255, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[140, 255, 25, 255]"
+  },
+  "[183, 25, 97, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[183, 25, 97, 255]"
+  },
+  "[183, 255, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[183, 255, 25, 255]"
+  },
+  "[226, 255, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[226, 255, 25, 255]"
+  },
+  "[25, 125, 255, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 125, 255, 255]"
+  },
+  "[25, 168, 255, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 168, 255, 255]"
+  },
+  "[25, 211, 255, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 211, 255, 255]"
+  },
+  "[25, 255, 125, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 255, 125, 255]"
+  },
+  "[25, 255, 168, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 255, 168, 255]"
+  },
+  "[25, 255, 211, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 255, 211, 255]"
+  },
+  "[25, 255, 255, 255]": {
+    "class": "container"
+  },
+  "[25, 255, 39, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 255, 39, 255]"
+  },
+  "[25, 255, 82, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 255, 82, 255]"
+  },
+  "[25, 39, 255, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 39, 255, 255]"
+  },
+  "[25, 82, 255, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[25, 82, 255, 255]"
+  },
+  "[255, 111, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 111, 25, 255]"
+  },
+  "[255, 154, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 154, 25, 255]"
+  },
+  "[255, 197, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 197, 25, 255]"
+  },
+  "[255, 240, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 240, 25, 255]"
+  },
+  "[255, 25, 111, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 25, 111, 255]"
+  },
+  "[255, 25, 154, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 25, 154, 255]"
+  },
+  "[255, 25, 197, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 25, 197, 255]"
+  },
+  "[255, 25, 240, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 25, 240, 255]"
+  },
+  "[255, 25, 25, 255]": {
+    "class": "floor"
+  },
+  "[255, 25, 68, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 25, 68, 255]"
+  },
+  "[255, 68, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[255, 68, 25, 255]"
+  },
+  "[54, 25, 226, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[54, 25, 226, 255]"
+  },
+  "[54, 255, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[54, 255, 25, 255]"
+  },
+  "[97, 25, 183, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[97, 25, 183, 255]"
+  },
+  "[97, 255, 25, 255]": {
+    "class": "ycb_object",
+    "original_color_if_split": "[97, 255, 25, 255]"
+  }
+}
