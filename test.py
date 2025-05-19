@@ -1,236 +1,206 @@
 # Moduli standard Python
 import os
 import asyncio
-import traceback # Per una migliore diagnostica degli errori
+import traceback
 
+# Classe SimulationApp di Isaac Sim
+from isaacsim import SimulationApp
 
-# Classe SimulationApp di Isaac Sim test
-from isaacsim import SimulationApp 
-
-# Variabili globali che verranno inizializzate dopo l'avvio di Kit
+# Variabili globali
 kit_app = None
-asset_converter_manager = None 
-usd_context = None             
-asset_converter_module_ref = None 
-
-# Variabili globali per i moduli/classi PXR, da popolare dopo l'init di Kit
+asset_converter_manager = None
+usd_context = None
+asset_converter_module_ref = None
 Gf_global = None
 UsdGeom_global = None
+Usd_global = None
 
 # --- Configurazione Utente ---
-input_stl_file = r"C:\Users\cm03696\Desktop\depal project\pre_build_asset\Baby_Bunny_FREE.stl"
-output_usd_file = r"C:\Users\cm03696\Desktop\depal project\pre_build_asset\Baby_Bunny_FREE.usd"
-prim_path_in_stage = "/World/Imported/BabyBunny"
-simulation_app_options = {"headless": False} 
-initial_position_vec = (0.0, 0.0, 0.0) 
-initial_scale_vec = (1.0, 1.0, 1.0)   
+input_stl_file = r"C:\Users\cm03696\Desktop\depal project\pre_build_asset\Cube.stl"
+output_usd_file = r"C:\Users\cm03696\Desktop\depal project\pre_build_asset\result_centered.usd"
+prim_path_in_stage = "/World/Imported/CenteredObject"
+simulation_app_options = {"headless": False}
+initial_scale_vec = (1.0, 1.0, 1.0)
 # --- Fine Configurazione Utente ---
 
 async def convert_asset_to_usd_impl(source_path, destination_path):
-    global asset_converter_manager, asset_converter_module_ref 
-
+    global asset_converter_manager, asset_converter_module_ref
     if asset_converter_manager is None or asset_converter_module_ref is None:
-        print("ERRORE INTERNO: Asset Converter Manager o il suo modulo non sono stati inizializzati correttamente.")
+        print("ERRORE INTERNO: Asset Converter non inizializzato.")
         return False
-
-    print(f"Avvio conversione da '{source_path}' a '{destination_path}'...")
     if not os.path.exists(source_path):
         print(f"Errore: File di input non trovato: {source_path}")
         return False
 
+    print(f"Avvio conversione da '{source_path}' a '{destination_path}'...")
     AssetConverterContext = asset_converter_module_ref.AssetConverterContext
     converter_options_context = AssetConverterContext()
-    converter_options_context.source_path = source_path 
+    converter_options_context.source_path = source_path
     converter_options_context.output_path = destination_path
-    
-    print(f"Chiamata a create_converter_task con source_path, destination_path, e context separati.")
     task = asset_converter_manager.create_converter_task(source_path, destination_path, converter_options_context)
-    
+
     success = False
     try:
-        success = await task.wait_until_finished() 
+        success = await task.wait_until_finished()
         if success:
-            print(f"Conversione completata con successo: {destination_path}")
+            print(f"Conversione completata: {destination_path}")
         else:
-            detailed_status = task.get_detailed_status()
-            print(f"Conversione fallita. Dettagli: {detailed_status if detailed_status else 'N/A'}")
+            print(f"Conversione fallita. Dettagli: {task.get_detailed_status() or 'N/A'}")
     except Exception as e:
-        print(f"Errore durante l'attesa del task di conversione: {e}")
+        print(f"Errore task di conversione: {e}")
         traceback.print_exc()
-    return success    
+    return success
 
-def load_usd_in_stage_impl(usd_file_path, prim_render_path, position_tuple, scale_tuple):
-    global usd_context, Gf_global, UsdGeom_global
-
-    if usd_context is None:
-        print("ERRORE INTERNO: USD Context (omni.usd) non è stato inizializzato correttamente.")
+def load_usd_in_stage_impl(usd_file_path, prim_render_path, scale_tuple):
+    global usd_context, Gf_global, UsdGeom_global, Usd_global
+    if not all([usd_context, Gf_global, UsdGeom_global, Usd_global]):
+        print("ERRORE INTERNO: Moduli PXR o USD Context non inizializzati.")
         return False
-    if Gf_global is None or UsdGeom_global is None:
-        print("ERRORE INTERNO: Moduli PXR (Gf, UsdGeom) non inizializzati correttamente.")
-        return False
-        
     if not os.path.exists(usd_file_path):
         print(f"Errore: File USD da caricare non trovato: {usd_file_path}")
         return False
-    
-    print(f"Caricamento di '{usd_file_path}' in '{prim_render_path}'...")
+
+    print(f"Caricamento e centratura di '{usd_file_path}' in '{prim_render_path}'...")
     stage = usd_context.get_stage()
     if not stage:
-        print("Errore: Stage USD non trovato nel contesto.")
+        print("Errore: Stage USD non trovato.")
         return False
-
-    position = Gf_global.Vec3d(*position_tuple)
-    scale = Gf_global.Vec3f(*scale_tuple)
 
     parent_path_str, _ = os.path.split(prim_render_path)
     if parent_path_str and not stage.GetPrimAtPath(parent_path_str):
         UsdGeom_global.Xform.Define(stage, parent_path_str)
 
-    ref_prim_usd = UsdGeom_global.Xform.Define(stage, prim_render_path).GetPrim()
+    xform_prim_schema = UsdGeom_global.Xform.Define(stage, prim_render_path)
+    ref_prim_usd = xform_prim_schema.GetPrim()
     if not ref_prim_usd.IsValid():
-        print(f"Errore: Impossibile definire o ottenere un prim valido a '{prim_render_path}'.")
+        print(f"Errore: Impossibile definire prim a '{prim_render_path}'.")
         return False
-        
+
     ref_prim_usd.GetReferences().AddReference(assetPath=usd_file_path)
-    print(f"Riferimento a '{usd_file_path}' aggiunto al prim '{prim_render_path}'.")
+    xformable = UsdGeom_global.Xformable(ref_prim_usd)
+    xformable.ClearXformOpOrder()
 
-    # --- USA XformCommonAPI PER IMPOSTARE LE TRASFORMAZIONI ---
-    xform_common_api = UsdGeom_global.XformCommonAPI(ref_prim_usd)
-    
-    xform_common_api.SetTranslate(position) 
-    print(f"'xformOp:translate' (o equivalente) impostato su {position} usando XformCommonAPI.")
-    
-    xform_common_api.SetScale(scale)
-    print(f"'xformOp:scale' (o equivalente) impostato su {scale} usando XformCommonAPI.")
-    
-    # Opzionale: per resettare la rotazione a identità se XformCommonAPI ne crea una
-    # default_rotation_euler_xyz = Gf_global.Vec3f(0,0,0) 
-    # xform_common_api.SetRotate(default_rotation_euler_xyz, UsdGeom_global.XformCommonAPI.RotationOrderXYZ)
-    # print(f"Rotazione impostata su {default_rotation_euler_xyz} usando XformCommonAPI.")
+    scale_val = Gf_global.Vec3f(*scale_tuple)
+    scale_op = xformable.AddScaleOp(UsdGeom_global.XformOp.PrecisionFloat)
+    scale_op.Set(scale_val)
+    print(f"'xformOp:scale' impostato su {scale_val}.")
 
-    print(f"Trasformazioni applicate a '{prim_render_path}' usando XformCommonAPI.")
+    imageable = UsdGeom_global.Imageable(ref_prim_usd)
+    time_code = Usd_global.TimeCode.Default()
+    purpose_token = UsdGeom_global.Tokens.default_
+    world_bbox = imageable.ComputeWorldBound(time_code, purpose_token)
+
+    calculated_translation_vec = Gf_global.Vec3d(0.0, 0.0, 0.0)
+    # --- CORREZIONE QUI ---
+    if world_bbox.GetRange().IsEmpty():
+    # --- FINE CORREZIONE ---
+        print(f"ATTENZIONE: Bounding box per '{prim_render_path}' è vuota. Posizionato a (0,0,0).")
+    else:
+        bbox_range= world_bbox.GetRange()
+        bbox_center_world = (bbox_range.GetMin() + bbox_range.GetMax()) / 2.0
+        calculated_translation_vec = -bbox_center_world
+        print(f"Centro BBox: {bbox_center_world}, Traslazione per centrare: {calculated_translation_vec}")
+
+    translate_op = xformable.AddTranslateOp(UsdGeom_global.XformOp.PrecisionDouble)
+    translate_op.Set(calculated_translation_vec)
+    print(f"'xformOp:translate' impostato su {calculated_translation_vec} per centrare.")
+
+    print(f"Trasformazioni (scala e centratura) applicate a '{prim_render_path}'.")
     return True
-    # --- FINE MODIFICA ---
 
-async def main_logic_task(): 
+async def main_logic_task():
     global kit_app, asset_converter_manager, usd_context, asset_converter_module_ref
-    global Gf_global, UsdGeom_global
+    global Gf_global, UsdGeom_global, Usd_global
 
     is_success_overall = False
     try:
-        print("Task principale (main_logic_task) avviato.")
-        
-        for _ in range(10): 
-            await asyncio.sleep(0.01) 
+        print("Task principale avviato.")
+        await asyncio.sleep(0.1)
 
-        print("Importazione moduli PXR e Kit specifici...")
+        print("Importazione moduli PXR e Kit...")
         try:
-            from pxr import UsdGeom, Gf 
-            Gf_global = Gf             
-            UsdGeom_global = UsdGeom   
-            print("Moduli PXR (UsdGeom, Gf) importati con successo.")
-
-            import omni.kit.app 
-            import omni.usd     
+            from pxr import UsdGeom, Gf, Usd
+            Gf_global, UsdGeom_global, Usd_global = Gf, UsdGeom, Usd
+            import omni.kit.app
+            import omni.usd
             usd_context = omni.usd.get_context()
-            print("Moduli 'omni.kit.app' e 'omni.usd' importati e contesto USD ottenuto.")
-
+            print("Moduli PXR e Kit importati.")
         except ImportError as e:
-            print(f"ERRORE CRITICO: Impossibile importare moduli PXR o Kit essenziali: {e}")
+            print(f"ERRORE CRITICO: Impossibile importare moduli essenziali: {e}")
             traceback.print_exc()
-            return 
+            return
 
         ext_manager = omni.kit.app.get_app().get_extension_manager()
         asset_converter_ext_id = "omni.kit.asset_converter"
-
         if not ext_manager.is_extension_enabled(asset_converter_ext_id):
             print(f"Abilitazione estensione '{asset_converter_ext_id}'...")
             ext_manager.set_extension_enabled_immediate(asset_converter_ext_id, True)
-            print(f"Attesa caricamento estensione '{asset_converter_ext_id}'...")
             loaded = False
-            for i in range(20): 
-                await asyncio.sleep(0.1) 
+            for i in range(20):
+                await asyncio.sleep(0.1)
                 if ext_manager.is_extension_loaded(asset_converter_ext_id):
-                    loaded = True
-                    print(f"Estensione '{asset_converter_ext_id}' caricata dopo { (i+1)*0.1:.1f} secondi.")
-                    break
-            if not loaded:
-                print(f"ATTENZIONE: Estensione '{asset_converter_ext_id}' potrebbe non essersi caricata completamente.")
+                    loaded = True; print(f"Estensione '{asset_converter_ext_id}' caricata."); break
+            if not loaded: print(f"ATTENZIONE: Estensione '{asset_converter_ext_id}' potrebbe non essersi caricata.")
         else:
             print(f"Estensione '{asset_converter_ext_id}' già abilitata.")
-        
-        try:
-            import omni.kit.asset_converter 
-            asset_converter_module_ref = omni.kit.asset_converter 
-            asset_converter_manager = asset_converter_module_ref.get_instance() 
 
+        try:
+            import omni.kit.asset_converter
+            asset_converter_module_ref = omni.kit.asset_converter
+            asset_converter_manager = asset_converter_module_ref.get_instance()
             if asset_converter_manager is None:
-                print(f"ERRORE CRITICO: Impossibile ottenere l'istanza di Asset Converter Manager ('{asset_converter_ext_id}').")
-                return 
-            print(f"Modulo '{asset_converter_ext_id}' importato e istanza del manager ottenuta.")
-        except ImportError as e:
-            print(f"ERRORE CRITICO: Impossibile importare il modulo '{asset_converter_ext_id}': {e}")
+                print("ERRORE CRITICO: Impossibile ottenere Asset Converter Manager.")
+                return
+            print("Asset Converter Manager ottenuto.")
+        except Exception as e:
+            print(f"ERRORE CRITICO ottenendo Asset Converter Manager: {e}")
             traceback.print_exc()
             return
-        except Exception as e: 
-            print(f"ERRORE CRITICO: Durante l'ottenimento di Asset Converter Manager: {e}")
-            traceback.print_exc()
-            return
-        
+
         conversion_success = await convert_asset_to_usd_impl(input_stl_file, output_usd_file)
         if not conversion_success:
-            print("Conversione fallita. Uscita dal task.")
-            return
+            print("Conversione fallita. Uscita."); return
 
-        for _ in range(5): 
-            await asyncio.sleep(0.1) 
+        await asyncio.sleep(0.5)
 
-        load_success = load_usd_in_stage_impl(output_usd_file, prim_path_in_stage, 
-                                               initial_position_vec, initial_scale_vec)
+        load_success = load_usd_in_stage_impl(output_usd_file, prim_path_in_stage, initial_scale_vec)
         if load_success:
-            print("Asset STL importato e caricato con successo!")
-            is_success_overall = True 
+            print("Asset importato, scalato e centrato con successo!")
+            is_success_overall = True
             if not simulation_app_options["headless"]:
-                print("L'applicazione resterà attiva (gestita dal loop esterno in __main__).")
+                print("Applicazione attiva. Chiudere la finestra per terminare.")
         else:
-            print("Caricamento dell'asset USD fallito.")
-        
+            print("Caricamento/centratura dell'asset USD fallito.")
+
     except Exception as e:
-        print(f"ERRORE CATASTROFICO nel task principale (main_logic_task): {e}")
+        print(f"ERRORE CATASTROFICO nel task principale: {e}")
         traceback.print_exc()
     finally:
         if simulation_app_options["headless"] and is_success_overall:
-            print("Operazione headless completata con successo. Chiusura dell'app dal task.")
+            print("Operazione headless completata. Chiusura app.")
             if kit_app and kit_app.is_running(): kit_app.close()
-        elif not is_success_overall and kit_app and kit_app.is_running(): 
-            print("Errore nel task o operazione non riuscita, chiusura dell'app dal task.")
+        elif not is_success_overall:
+            print("Errore o operazione non riuscita. Chiusura app.")
             if kit_app and kit_app.is_running(): kit_app.close()
-
 
 if __name__ == "__main__":
-    print("Avvio script da VSCode (o altra console Python)...")
-    
+    print("Avvio script Python...")
     try:
         kit_app = SimulationApp(launch_config=simulation_app_options)
-        print("Omniverse Kit Application Inizializzata (da __main__).")
-        
-        for _ in range(5): 
-             kit_app.update() 
+        print("Omniverse Kit Application Inizializzata.")
+        for _ in range(5): kit_app.update()
 
         asyncio.ensure_future(main_logic_task())
-        
         while kit_app.is_running():
-            kit_app.update() 
-
-        print("Il loop principale di Kit Application è terminato (kit_app.is_running() è False).")
-
+            kit_app.update()
+        print("Loop principale Kit Application terminato.")
     except KeyboardInterrupt:
-        print("Rilevato KeyboardInterrupt (Ctrl+C), chiusura...")
-    except Exception as e: 
-        print(f"Errore fatale durante l'inizializzazione o nel loop principale di __main__: {e}")
+        print("KeyboardInterrupt rilevato, chiusura...")
+    except Exception as e:
+        print(f"Errore fatale in __main__: {e}")
         traceback.print_exc()
     finally:
         if kit_app is not None and kit_app.is_running():
-            print("Chiusura Omniverse Kit Application (dal blocco finally di __main__)...")
+            print("Chiusura Omniverse Kit Application (finally __main__)...")
             kit_app.close()
         print("Script terminato.")
