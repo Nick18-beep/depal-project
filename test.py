@@ -3,7 +3,8 @@ import os
 import asyncio
 import traceback # Per una migliore diagnostica degli errori
 
-# Classe SimulationApp di Isaac Sim
+
+# Classe SimulationApp di Isaac Sim test
 from isaacsim import SimulationApp 
 
 # Variabili globali che verranno inizializzate dopo l'avvio di Kit
