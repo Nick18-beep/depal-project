@@ -17,7 +17,7 @@ Usd_global = None
 
 # --- Configurazione Utente ---
 input_stl_file = r"C:\Users\cm03696\Desktop\depal project\pre_build_asset\Cube.stl"
-output_usd_file = r"C:\Users\cm03696\Desktop\depal project\pre_build_asset\result_centered.usd"
+output_usd_file = r"C:\Users\cm03696\Desktop\depal project\pre_build_asset\result2_centered.usd"
 prim_path_in_stage = "/World/Imported/CenteredObject"
 simulation_app_options = {"headless": False}
 initial_scale_vec = (1.0, 1.0, 1.0)

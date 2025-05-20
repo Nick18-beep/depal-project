@@ -124,7 +124,9 @@ def spawn_boxes_on_scene(stage, box_creator_module, Gf_module, box_cfg, parent_p
         box_scale_min=box_cfg['scale_min'], box_scale_max=box_cfg['scale_max'],
         box_mass=box_cfg['mass_kg'], default_color=Gf_module.Vec3f(box_cfg['default_color_rgb']),
         semantic_label=box_cfg['semantic_label'],
-        available_pbr_material_paths=direct_mat_paths_list
+        available_pbr_material_paths=direct_mat_paths_list,
+        asset_material_override_probability = box_cfg["asset_material_override_probability"],
+        procedural_vs_asset_probability = box_cfg["procedural_vs_asset_probability"]
     )
     if spawned: print(f"Istanziate {len(spawned)} scatole.")
     else: print("Nessuna scatola istanziata.")
