@@ -1,72 +1,59 @@
+
+
 # src/object_generator.py
 
 import random
 import numpy as np
-from pxr import Gf, Usd, UsdGeom, UsdPhysics, Sdf, UsdShade # Importa i moduli USD necessari
+from pxr import Gf, Usd, UsdGeom, UsdPhysics, Sdf, UsdShade
+import os
 
-# Importazioni da Isaac Sim Core (AGGIORNATE ai nuovi percorsi)
-from isaacsim.core.utils.prims import create_prim, get_prim_at_path, get_prim_children # Aggiornato
-from isaacsim.core.utils.rotations import euler_angles_to_quat # Aggiornato
-from isaacsim.core.utils.semantics import add_update_semantics # Aggiornato
-# CORREZIONE: Usa il percorso API per i materiali (anche se non creiamo più PreviewSurface qui, lo manteniamo per coerenza se dovesse servire altrove)
-from isaacsim.core.api.materials import PreviewSurface # Aggiornato al percorso API
+# Importazioni da Isaac Sim Core
+from isaacsim.core.utils.prims import create_prim, get_prim_at_path
+from isaacsim.core.utils.rotations import euler_angles_to_quat
+from isaacsim.core.utils.semantics import add_update_semantics
+from isaacsim.core.api.materials import PreviewSurface
 
 
 def _get_existing_materials(stage: Usd.Stage, materials_path: str) -> list[UsdShade.Material]:
-    """
-    Trova tutti i materiali UsdShade validi sotto il percorso specificato.
-    """
+    # ... (codice invariato) ...
     found_materials = []
     materials_root_prim = stage.GetPrimAtPath(materials_path)
     if not materials_root_prim:
         print(f"object_generator.py: AVVISO - Percorso materiali '{materials_path}' non trovato.")
         return []
-
-    # Itera sui figli diretti del percorso fornito
-    # Potresti voler usare stage.Traverse() per una ricerca più profonda se i materiali sono nidificati
-    for prim in materials_root_prim.GetChildren():
-        if prim.IsA(UsdShade.Material):
+    for prim_spec in materials_root_prim.GetChildren():
+        prim = stage.GetPrimAtPath(prim_spec.GetPath())
+        if prim and prim.IsA(UsdShade.Material):
             material = UsdShade.Material(prim)
-            if material: # Verifica aggiuntiva
+            if material:
                  found_materials.append(material)
-        # Opzionale: potresti voler controllare anche gli Xform che contengono materiali
-        # elif prim.IsA(UsdGeom.Xform):
-        #     for child_prim in prim.GetChildren():
-        #         if child_prim.IsA(UsdShade.Material):
-        #             material = UsdShade.Material(child_prim)
-        #             if material:
-        #                 found_materials.append(material)
-
     if not found_materials:
          print(f"object_generator.py: AVVISO - Nessun materiale UsdShade trovato sotto '{materials_path}'.")
-
     return found_materials
 
-
-def _apply_random_existing_material(stage: Usd.Stage, prim: Usd.Prim, existing_materials: list[UsdShade.Material]):
-    """
-    Applica un materiale casuale dalla lista fornita al prim specificato.
-    """
-    if not existing_materials:
-        print(f"object_generator.py: AVVISO - Nessun materiale esistente fornito per applicare a '{prim.GetPath()}'.")
+def _apply_random_existing_material_to_meshes(stage: Usd.Stage, geometry_container_prim: Usd.Prim, existing_materials: list[UsdShade.Material]):
+    # ... (codice invariato) ...
+    if not existing_materials: return False
+    if not geometry_container_prim or not geometry_container_prim.IsValid():
+        print(f"object_generator.py: AVVISO - Prim contenitore geometria non valido '{geometry_container_prim.GetPath()}'.")
         return False
-
     try:
-        # Scegli un materiale a caso dalla lista
         selected_material = random.choice(existing_materials)
         material_path = selected_material.GetPath()
-
-        # Associa il materiale selezionato al prim.
-        # Lega al prim radice dell'asset importato.
-        target_prim_for_binding = prim
-        UsdShade.MaterialBindingAPI(target_prim_for_binding).Bind(selected_material, bindingStrength=UsdShade.Tokens.strongerThanDescendants)
-        print(f"object_generator.py: Materiale esistente '{material_path}' applicato a '{target_prim_for_binding.GetPath()}'.")
-        return True
-
+        meshes_found_count = 0
+        for descendant_prim_spec in Usd.PrimRange(geometry_container_prim):
+            descendant_prim = stage.GetPrimAtPath(descendant_prim_spec.GetPath())
+            if descendant_prim and descendant_prim.IsA(UsdGeom.Mesh):
+                UsdShade.MaterialBindingAPI(descendant_prim).Bind(selected_material, bindingStrength=UsdShade.Tokens.strongerThanDescendants)
+                print(f"object_generator.py: Materiale '{material_path}' applicato alla mesh '{descendant_prim.GetPath()}'.")
+                meshes_found_count += 1
+        if meshes_found_count > 0: return True
+        else:
+            print(f"object_generator.py: AVVISO - Nessuna mesh trovata sotto '{geometry_container_prim.GetPath()}' per applicare materiale.")
+            return False
     except Exception as e:
-        print(f"object_generator.py: ERRORE durante l'applicazione del materiale esistente a '{prim.GetPath()}': {e}")
+        print(f"object_generator.py: ERRORE applicazione materiale alle mesh sotto '{geometry_container_prim.GetPath()}': {e}")
         return False
-
 
 def spawn_objects(
     stage: Usd.Stage,
@@ -77,211 +64,200 @@ def spawn_objects(
     base_z_offset: float,
     z_jitter: float,
     xy_jitter_range: tuple[float, float] = (-0.2, 0.2),
-    asset_scale_min: float = 0.8, # Scala minima relativa all'originale
-    asset_scale_max: float = 1.2, # Scala massima relativa all'originale
+    asset_folder_path: str =  r"C:\Users\cm03696\Desktop\depal project\pre_build_asset",
+    folder_asset_pre_scale_factor: float = 0.005, # NUOVO: Fattore di pre-scalatura per asset da cartella
+    asset_scale_min: float = 0.8, # Scala relativa applicata *dopo* la pre-scalatura (se applicabile)
+    asset_scale_max: float = 1.2,
     object_mass: float = 1.0,
     semantic_label: str = "object",
-    change_material_probability: float = 0.3, # Probabilità di cambiare materiale (0.0 a 1.0)
-    existing_materials_path: str = "/World/Looks" # Percorso dove TROVARE materiali esistenti da applicare
+    existing_materials_path: str = "/World/Looks",
+    asset_material_override_probability : float = 0.5
 ):
     """
-    Genera N oggetti caricandoli casualmente da una lista di percorsi USD,
-    applica fisica, semantica e opzionalmente applica un materiale casuale
-    scelto tra quelli presenti sotto `existing_materials_path`.
-
-    Args:
-        stage: Lo stage USD corrente.
-        num_objects: Il numero di oggetti da generare.
-        usd_asset_paths: Lista di percorsi ai file USD degli asset da usare.
-        parent_path: Il percorso USD sotto cui creare gli oggetti (es. /World/GeneratedObjects).
-        base_position: Posizione centrale (x, y) attorno alla quale generare gli oggetti.
-        base_z_offset: Offset Z di base da aggiungere alla posizione Z calcolata.
-        z_jitter: Variazione casuale massima da aggiungere all'offset Z.
-        xy_jitter_range: Intervallo (min, max) per la variazione casuale X e Y.
-        asset_scale_min: Fattore di scala minimo (applicato casualmente per asse).
-        asset_scale_max: Fattore di scala massimo (applicato casualmente per asse).
-        object_mass: Massa da applicare agli oggetti per la fisica.
-        semantic_label: Etichetta semantica da applicare agli oggetti.
-        change_material_probability: Probabilità (0-1) che un materiale casuale esistente venga applicato all'oggetto.
-        existing_materials_path: Percorso USD dove cercare i materiali esistenti da applicare casualmente.
+    Genera N oggetti USD. Asset da 'asset_folder_path' sono pre-scalati.
+    Tutti gli asset sono poi centrati internamente, ulteriormente scalati (relativamente),
+    ruotati e posizionati.
     """
-    num_objects=random.randint(num_to_spawn_range[0],num_to_spawn_range[1])
-    print(f"object_generator.py: Inizio generazione di {num_objects} oggetti.")
+    num_actual_objects_to_spawn = random.randint(num_to_spawn_range[0], num_to_spawn_range[1])
+    print(f"object_generator.py: Inizio generazione di {num_actual_objects_to_spawn} oggetti.")
 
-    if not usd_asset_paths:
-        print("object_generator.py: ERRORE - La lista 'usd_asset_paths' è vuota. Nessun oggetto verrà generato.")
+    # --- Raccogli tutte le possibili sorgenti di asset ---
+    explicit_asset_paths = list(usd_asset_paths) if usd_asset_paths else []
+    folder_asset_paths = []
+
+    if asset_folder_path:
+        if os.path.isdir(asset_folder_path):
+            print(f"object_generator.py: Scansione cartella asset '{asset_folder_path}' per file .usd...")
+            found_in_folder = 0
+            for item in os.listdir(asset_folder_path):
+                if item.lower().endswith(".usd"):
+                    full_item_path = os.path.join(asset_folder_path, item)
+                    if os.path.isfile(full_item_path):
+                        if full_item_path not in explicit_asset_paths and full_item_path not in folder_asset_paths:
+                            folder_asset_paths.append(full_item_path)
+                        found_in_folder += 1
+            if found_in_folder > 0:
+                print(f"object_generator.py: Trovati e aggiunti {found_in_folder} asset USD da '{asset_folder_path}'.")
+        else:
+            print(f"object_generator.py: AVVISO - Percorso asset_folder_path '{asset_folder_path}' non valido.")
+    
+    all_available_asset_sources = explicit_asset_paths + folder_asset_paths
+    if not all_available_asset_sources:
+        print("object_generator.py: ERRORE - Nessuna sorgente di asset USD disponibile. Nessun oggetto generato.")
         return []
+    # --- Fine raccolta asset ---
 
-    # Assicura che il prim genitore esista
-    if not get_prim_at_path(parent_path):
+    parent_prim_check = stage.GetPrimAtPath(parent_path)
+    if not parent_prim_check:
         UsdGeom.Xform.Define(stage, parent_path)
         print(f"object_generator.py: Creato Xform genitore a '{parent_path}'.")
 
-    # Trova i materiali esistenti UNA SOLA VOLTA all'inizio
     available_materials = _get_existing_materials(stage, existing_materials_path)
     if not available_materials:
-         print(f"object_generator.py: AVVISO - Nessun materiale trovato in '{existing_materials_path}'. Non sarà possibile applicare materiali casuali.")
-         # Potresti decidere di interrompere qui o continuare senza applicare materiali
-         # return [] # Esempio: interrompi se non ci sono materiali
+         print(f"object_generator.py: AVVISO - Nessun materiale trovato. Non verranno applicati materiali casuali.")
 
+    created_object_root_prims = []
 
-    created_object_prims = []
+    for i in range(num_actual_objects_to_spawn):
+        object_instance_name_suffix = f"{random.randint(10000, 99999)}_{i}"
+        object_root_prim_path = f"{parent_path}/SpawnedObject_{object_instance_name_suffix}"
 
-    for i in range(num_objects):
-        # Rendi il nome più univoco per evitare potenziali conflitti se la funzione viene chiamata più volte
-        object_prim_name = f"GeneratedObject_{random.randint(10000, 99999)}_{i}"
-        current_object_prim_path = f"{parent_path}/{object_prim_name}"
-
-        # Calcola posizione casuale
         pos_offset_x = random.uniform(xy_jitter_range[0], xy_jitter_range[1])
         pos_offset_y = random.uniform(xy_jitter_range[0], xy_jitter_range[1])
         pos_offset_z = base_z_offset + random.uniform(0, z_jitter)
-        # Assicurati che base_position sia un array numpy e abbia dimensione 3
-        if not isinstance(base_position, np.ndarray):
-             base_position = np.array(base_position) # Converti se è una lista o tupla
-        if base_position.shape == (2,): # Se sono date solo X, Y
-            base_position_3d = np.append(base_position, 0.0) # Aggiungi Z=0
-        elif base_position.shape == (3,):
-             base_position_3d = base_position
-        else:
-             print(f"object_generator.py: ERRORE - 'base_position' ha forma {base_position.shape}, attesa (2,) o (3,). Uso [0,0,0].")
+        
+        if not isinstance(base_position, np.ndarray): base_position = np.array(base_position)
+        base_position_3d = np.append(base_position, 0.0) if base_position.shape == (2,) else base_position
+        if base_position_3d.shape != (3,):
+             print(f"object_generator.py: ERRORE forma 'base_position'. Uso [0,0,0].")
              base_position_3d = np.array([0.0, 0.0, 0.0])
+        
+        spawn_position_np = base_position_3d + np.array([pos_offset_x, pos_offset_y, pos_offset_z])
+        spawn_position_gf = Gf.Vec3d(*spawn_position_np.astype(float))
 
-        position_np = base_position_3d + np.array([pos_offset_x, pos_offset_y, pos_offset_z])
-        position_gf = Gf.Vec3d(float(position_np[0]), float(position_np[1]), float(position_np[2]))
-
-        # Calcola orientamento casuale
         random_euler_rad = np.array([random.uniform(0, 2 * np.pi) for _ in range(3)])
-        orientation_np_wxyz = euler_angles_to_quat(random_euler_rad, degrees=False) # w,x,y,z
+        spawn_orientation_np_wxyz = euler_angles_to_quat(random_euler_rad, degrees=False)
 
-        # Scegli un asset USD casuale dalla lista
-        actual_asset_path_chosen = random.choice(usd_asset_paths)
+        actual_asset_path_chosen = random.choice(all_available_asset_sources)
+        is_folder_asset = actual_asset_path_chosen in folder_asset_paths
+        
+        print(f"object_generator.py: DEBUG [{object_root_prim_path}] Scelto asset: '{actual_asset_path_chosen}' (Da cartella: {is_folder_asset})")
 
-        # Calcola scala casuale indipendente per ogni asse come moltiplicatore
-        scale_x = random.uniform(asset_scale_min, asset_scale_max)
-        scale_y = random.uniform(asset_scale_min, asset_scale_max)
-        scale_z = random.uniform(asset_scale_min, asset_scale_max)
-        # La scala in create_prim si aspetta un Gf.Vec3f o simile, non numpy array direttamente
-        scale_gf = Gf.Vec3f(scale_x, scale_y, scale_z)
+        # --- 1. Calcola l'offset dal pivot al centro dell'asset (considerando la pre-scalatura per asset da cartella) ---
+        offset_from_pivot_to_center_local_potentially_prescaled = Gf.Vec3d(0,0,0)
+        scale_for_measurement = Gf.Vec3f(1.0, 1.0, 1.0) # Scala per la misurazione del bound
+        if is_folder_asset:
+            scale_for_measurement = Gf.Vec3f(folder_asset_pre_scale_factor, folder_asset_pre_scale_factor, folder_asset_pre_scale_factor)
+            print(f"object_generator.py: DEBUG [{object_root_prim_path}] Asset da cartella. Pre-scalatura per misurazione: {scale_for_measurement}")
 
-        print(f"object_generator.py: Tentativo di creare '{current_object_prim_path}' usando asset '{actual_asset_path_chosen}'.")
-        print(f"object_generator.py: Scala relativa casuale applicata [X, Y, Z]: [{scale_x:.4f}, {scale_y:.4f}, {scale_z:.4f}].")
-
-        # Crea il prim referenziando l'asset USD
-        prim = create_prim(
-            prim_path=current_object_prim_path,
-            usd_path=actual_asset_path_chosen,
-            position=position_gf,
-            scale=scale_gf, # Usa Gf.Vec3f per la scala
-            orientation=orientation_np_wxyz, # Assicurati che sia w,x,y,z
-        )
-
-        if not prim or not prim.IsValid():
-            print(f"object_generator.py: ERRORE - Creazione del prim '{current_object_prim_path}' fallita (asset: {actual_asset_path_chosen}).")
-            continue
-
-        print(f"object_generator.py: Prim '{current_object_prim_path}' creato con successo.")
-
-        # --- Applica Materiale Casuale Esistente ---
-        if available_materials and random.random() < change_material_probability:
-            print(f"object_generator.py: Tentativo di applicare materiale esistente casuale a '{current_object_prim_path}'...")
-            material_applied = _apply_random_existing_material(stage, prim, available_materials)
-            if not material_applied:
-                print(f"object_generator.py: Applicazione materiale esistente fallita per '{current_object_prim_path}'.")
-        else:
-             if not available_materials:
-                 print(f"object_generator.py: Applicazione materiale saltata per '{current_object_prim_path}' (nessun materiale esistente trovato).")
-             else:
-                 print(f"object_generator.py: Applicazione materiale saltata per '{current_object_prim_path}' (probabilità: {change_material_probability}).")
-
-
-        # --- Applica Fisica ---
         try:
-            # Applica API al prim radice dell'asset importato
-            UsdPhysics.CollisionAPI.Apply(prim)
-            UsdPhysics.RigidBodyAPI.Apply(prim)
-            mass_api = UsdPhysics.MassAPI.Apply(prim)
+            temp_stage = Usd.Stage.CreateInMemory()
+            temp_prim_path_measure = "/AssetToMeasure"
+            temp_prim_measure_xform = UsdGeom.Xform.Define(temp_stage, temp_prim_path_measure)
+            
+            # Applica la scala di misurazione all'Xform wrapper, poi referenzia l'asset
+            xformable_measure = UsdGeom.Xformable(temp_prim_measure_xform.GetPrim())
+            xformable_measure.ClearXformOpOrder()
+            xformable_measure.AddScaleOp(UsdGeom.XformOp.PrecisionFloat).Set(scale_for_measurement)
+            
+            # Crea un prim figlio per la reference per evitare di sovrascrivere le xform ops dell'asset
+            asset_ref_in_measure_prim = temp_stage.DefinePrim(f"{temp_prim_path_measure}/AssetRef", "Xform")
+            asset_ref_in_measure_prim.GetReferences().AddReference(assetPath=actual_asset_path_chosen)
+            
+            # Calcola il bound sull'Xform wrapper che ha la scala e la reference
+            imageable_temp = UsdGeom.Imageable(temp_prim_measure_xform.GetPrim())
+            world_bbox_measured = imageable_temp.ComputeWorldBound(Usd.TimeCode.Default(), UsdGeom.Tokens.default_)
+
+            if not world_bbox_measured.GetRange().IsEmpty():
+                bbox_range_measured = world_bbox_measured.GetRange()
+                # Questo offset è ora relativo all'asset *potenzialmente pre-scalato*
+                offset_from_pivot_to_center_local_potentially_prescaled = (bbox_range_measured.GetMin() + bbox_range_measured.GetMax()) / 2.0
+                print(f"object_generator.py: DEBUG [{object_root_prim_path}] Offset (local, post-misura-scala): {offset_from_pivot_to_center_local_potentially_prescaled}")
+            else:
+                print(f"object_generator.py: AVVISO [{object_root_prim_path}] BBox (post-misura-scala) vuota. Offset {offset_from_pivot_to_center_local_potentially_prescaled}")
+        except Exception as e_measure:
+            print(f"object_generator.py: ERRORE [{object_root_prim_path}] Misurazione asset '{actual_asset_path_chosen}': {e_measure}")
+
+        # --- 2. Calcola la scala finale dell'oggetto ---
+        relative_scale_factor_x = random.uniform(asset_scale_min, asset_scale_max)
+        relative_scale_factor_y = random.uniform(asset_scale_min, asset_scale_max)
+        relative_scale_factor_z = random.uniform(asset_scale_min, asset_scale_max)
+
+        if is_folder_asset:
+            # Applica la scala relativa alla pre-scalatura
+            final_scale_x = folder_asset_pre_scale_factor * relative_scale_factor_x
+            final_scale_y = folder_asset_pre_scale_factor * relative_scale_factor_y
+            final_scale_z = folder_asset_pre_scale_factor * relative_scale_factor_z
+        else:
+            # Usa direttamente la scala relativa per asset da lista esplicita
+            final_scale_x = relative_scale_factor_x
+            final_scale_y = relative_scale_factor_y
+            final_scale_z = relative_scale_factor_z
+            
+        final_object_scale_gf = Gf.Vec3f(final_scale_x, final_scale_y, final_scale_z)
+        print(f"object_generator.py: DEBUG [{object_root_prim_path}] Scala finale oggetto: {final_object_scale_gf}")
+
+        # --- 3. Crea l'Xform radice dell'oggetto ---
+        object_root_prim_usd = UsdGeom.Xform.Define(stage, object_root_prim_path).GetPrim()
+        xformable_root = UsdGeom.Xformable(object_root_prim_usd)
+        xformable_root.ClearXformOpOrder()
+        xformable_root.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble).Set(spawn_position_gf)
+        orient_quat_gf = Gf.Quatf(spawn_orientation_np_wxyz[0], spawn_orientation_np_wxyz[1], spawn_orientation_np_wxyz[2], spawn_orientation_np_wxyz[3])
+        xformable_root.AddOrientOp(UsdGeom.XformOp.PrecisionFloat).Set(orient_quat_gf)
+        xformable_root.AddScaleOp(UsdGeom.XformOp.PrecisionFloat).Set(final_object_scale_gf)
+        
+        # --- 4. Crea l'Xform di centratura ---
+        # La traslazione di centratura usa l'offset calcolato sull'asset *potenzialmente pre-scalato*.
+        # Questa traslazione di centratura avviene *dopo* che l'Xform radice ha applicato la sua scala finale.
+        # Quindi, l'offset di centratura deve essere nello spazio "non scalato" rispetto alla scala finale dell'Xform radice.
+        # L'offset che abbiamo è già nello spazio corretto (locale all'asset pre-scalato, che è quello che referenzieremo).
+        centering_xform_name = "InternalCenteringXform"
+        centering_xform_path = f"{object_root_prim_path}/{centering_xform_name}"
+        centering_xform_usd = UsdGeom.Xform.Define(stage, centering_xform_path).GetPrim()
+        xformable_centering = UsdGeom.Xformable(centering_xform_usd)
+        xformable_centering.ClearXformOpOrder()
+        # Applica la traslazione *opposta* all'offset. Questo offset è già "pre-scalato" se necessario.
+        centering_translation = -offset_from_pivot_to_center_local_potentially_prescaled
+        xformable_centering.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Vec3d(centering_translation))
+        print(f"object_generator.py: DEBUG [{object_root_prim_path}] Applicata traslazione di centratura interna: {centering_translation}")
+
+        # --- 5. Referenzia l'asset USD ---
+        # L'asset referenziato *non* deve avere la pre-scalatura applicata di nuovo qui,
+        # perché l'offset di centratura è stato calcolato sulla versione pre-scalata,
+        # e la scala finale dell'oggetto è sull'Xform radice.
+        asset_content_prim_name = "AssetContent"
+        asset_content_prim_path = f"{centering_xform_path}/{asset_content_prim_name}"
+        asset_content_container_prim = stage.DefinePrim(asset_content_prim_path, "Xform")
+        asset_content_container_prim.GetReferences().AddReference(assetPath=actual_asset_path_chosen)
+        # Se l'asset è da cartella, la sua "dimensione naturale" sarà grande.
+        # L'Xform radice (`object_root_prim_usd`) lo scala alla dimensione finale corretta.
+        # L'Xform di centratura (`centering_xform_usd`) sposta questa geometria (già scalata dall'Xform radice)
+        # in modo che il suo centro (calcolato sulla base della versione pre-scalata) sia all'origine dell'Xform di centratura.
+
+        print(f"object_generator.py: Oggetto '{object_root_prim_path}' creato con geometria centrata internamente.")
+        
+        # ... (resto del codice per materiali, fisica, semantica invariato) ...
+        if available_materials and random.random() < asset_material_override_probability:
+            print(f"object_generator.py: Tentativo di applicare materiale a '{asset_content_container_prim.GetPath()}'...")
+            _apply_random_existing_material_to_meshes(stage, asset_content_container_prim, available_materials)
+        
+        try:
+            UsdPhysics.CollisionAPI.Apply(object_root_prim_usd)
+            UsdPhysics.RigidBodyAPI.Apply(object_root_prim_usd)
+            mass_api = UsdPhysics.MassAPI.Apply(object_root_prim_usd)
             mass_api.CreateMassAttr().Set(object_mass)
-            print(f"object_generator.py: Fisica (Collision, RigidBody, Mass={object_mass}) applicata a '{current_object_prim_path}'.")
+            print(f"object_generator.py: Fisica applicata a '{object_root_prim_path}'.")
         except Exception as e_phys:
-             print(f"object_generator.py: ERRORE durante l'applicazione della fisica a '{current_object_prim_path}': {e_phys}")
+             print(f"object_generator.py: ERRORE applicazione fisica a '{object_root_prim_path}': {e_phys}")
 
-
-        # --- Applica Semantica ---
         if semantic_label:
             try:
-                add_update_semantics(prim, semantic_label)
-                # La funzione add_update_semantics logga già.
+                add_update_semantics(object_root_prim_usd, semantic_label)
             except Exception as e_sem:
-                 print(f"object_generator.py: ERRORE durante l'applicazione della semantica a '{current_object_prim_path}': {e_sem}")
+                 print(f"object_generator.py: ERRORE applicazione semantica a '{object_root_prim_path}': {e_sem}")
+
+        created_object_root_prims.append(object_root_prim_usd)
 
 
-        created_object_prims.append(prim)
-
-    print(f"object_generator.py: Generazione di {len(created_object_prims)}/{num_objects} oggetti completata.")
-    return created_object_prims
-
-# --- Esempio di utilizzo ---
-# Questo blocco verrebbe eseguito all'interno del tuo script Isaac Sim
-
-# if __name__ == "__main__":
-#     # Ottieni lo stage corrente (assumendo che sia già stato creato)
-#     import omni.usd
-#     stage = omni.usd.get_context().get_stage()
-#
-#     if stage:
-#         # Definisci i percorsi degli asset USD che vuoi usare
-#         asset_list = [
-#             "omniverse://localhost/NVIDIA/Assets/Isaac/2023.1.1/Isaac/Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd",
-#             "omniverse://localhost/NVIDIA/Assets/Isaac/2023.1.1/Isaac/Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd",
-#             "omniverse://localhost/NVIDIA/Assets/Isaac/2023.1.1/Isaac/Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd",
-#             "omniverse://localhost/NVIDIA/Assets/Isaac/2023.1.1/Isaac/Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd",
-#             "omniverse://localhost/NVIDIA/Assets/Isaac/2023.1.1/Isaac/Props/YCB/Axis_Aligned_Physics/010_potted_meat_can.usd",
-#         ]
-#
-#         # ASSICURATI CHE QUESTO PERCORSO CONTENGA MATERIALI USD VALIDI (es. .mdl convertiti o UsdPreviewSurface)
-#         materials_folder_path = "/World/Looks"
-#         # Esempio: potresti creare alcuni materiali manualmente o con un altro script prima:
-#         # PreviewSurface(prim_path=f"{materials_folder_path}/Red", color=Gf.Vec3f(1,0,0))
-#         # PreviewSurface(prim_path=f"{materials_folder_path}/Blue", color=Gf.Vec3f(0,0,1))
-#
-#         # Parametri per la generazione
-#         num_to_spawn = 10
-#         spawn_parent_path = "/World/GeneratedObjects"
-#         spawn_base_pos = np.array([0.0, 0.0])
-#         spawn_z_offset = 0.5
-#         spawn_z_jitter = 0.5
-#         spawn_xy_jitter = (-0.6, 0.6)
-#         spawn_scale_min = 0.8
-#         spawn_scale_max = 1.2
-#         spawn_mass = 0.2
-#         spawn_semantic = "generated_prop"
-#         spawn_material_prob = 0.6 # 60% di probabilità di applicare un materiale esistente
-#
-#         # Chiama la funzione per generare gli oggetti
-#         generated_prims = spawn_objects(
-#             stage=stage,
-#             num_objects=num_to_spawn,
-#             usd_asset_paths=asset_list,
-#             parent_path=spawn_parent_path,
-#             base_position=spawn_base_pos,
-#             base_z_offset=spawn_z_offset,
-#             z_jitter=spawn_z_jitter,
-#             xy_jitter_range=spawn_xy_jitter,
-#             asset_scale_min=spawn_scale_min,
-#             asset_scale_max=spawn_scale_max,
-#             object_mass=spawn_mass,
-#             semantic_label=spawn_semantic,
-#             change_material_probability=spawn_material_prob, # Nome parametro aggiornato
-#             existing_materials_path=materials_folder_path # Nome parametro aggiornato
-#         )
-#
-#         print(f"\n--- Riepilogo ---")
-#         if generated_prims:
-#             print(f"Creati {len(generated_prims)} prims:")
-#             for prim in generated_prims:
-#                 print(f"- {prim.GetPath()}")
-#         else:
-#             print("Nessun prim generato (controlla errori precedenti).")
-#     else:
-#         print("ERRORE: Impossibile ottenere lo stage USD corrente.")
+    print(f"object_generator.py: Generazione di {len(created_object_root_prims)}/{num_actual_objects_to_spawn} oggetti completata.")
+    return created_object_root_prims

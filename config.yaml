@@ -104,7 +104,7 @@ asset_spawner:
     prim_name_instance_base: "ImportedContainer"
 
 box_spawner: 
-  enable: True 
+  enable: False 
   num_to_spawn_range: [10,15]
   mass_kg: 1
   base_z_offset: 1.2
@@ -125,7 +125,7 @@ box_spawner:
   #stl
 
 object_creator_ycb: 
-  enable: False 
+  enable: True 
   asset_list:
     - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned/002_master_chef_can.usd"
     - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned/003_cracker_box.usd"
@@ -156,7 +156,7 @@ object_creator_ycb:
   spawn_scale_max: 1.2
   spawn_mass: 0.2
   semantic_label: "ycb_object" 
-  spawn_material_prob: 0.7 
+  asset_material_override_probability: 0.75
 
 replicator:
   resolution_wh: [1920, 1080]           

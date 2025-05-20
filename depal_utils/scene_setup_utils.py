@@ -102,8 +102,9 @@ def spawn_additional_ycb_objects(stage, object_creator_module, ycb_cfg):
         asset_scale_min=ycb_cfg['spawn_scale_min'], asset_scale_max=ycb_cfg['spawn_scale_max'],
         object_mass=ycb_cfg['spawn_mass'], 
         semantic_label=ycb_cfg['semantic_label'], 
-        change_material_probability=ycb_cfg['spawn_material_prob'], 
-        existing_materials_path=mats_folder
+         
+        existing_materials_path=mats_folder,
+        asset_material_override_probability = ycb_cfg["asset_material_override_probability"],
     )
     if prims: print(f"Istanziati {len(prims)} oggetti YCB.")
     else: print("Nessun oggetto YCB istanziato.")
