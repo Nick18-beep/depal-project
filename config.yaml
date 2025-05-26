@@ -3,7 +3,7 @@
 simulation_setup:
   headless: True
   # renderer: "PathTracing" 
-  num_images_to_generate: 10
+  num_images_to_generate: 1
   simulation_updates_after_setup: 200 
 
 paths:
@@ -25,6 +25,13 @@ camera:
   height_max: 7.5                         
   focal_length: 35.0
   rotation_xyz: [-90.0, 0.0, 0.0]      
+
+stereo_camera_setup:
+  enable: true                # Imposta a true per attivare le camere stereo
+  rig_prim_path: "/World/StereoRig" # Percorso base per il rig che tiene le camere stereo
+  left_cam_name: "StereoLeft"     # Nome del prim per la camera sinistra
+  right_cam_name: "StereoRight"    # Nome del prim per la camera destra
+  
 
 material_creator:
   # TEXTURE
@@ -53,7 +60,7 @@ light_creator:
   configurations:
     - type: "DomeLight"
       orientation_euler_range: {x: [0.0,0.0], y: [-180.0,180.0], z: [0.0,0.0]}
-      intensity_range: [900.0, 1500.0]
+      intensity_range: [1000.0, 1500.0]
       color_range: [[0.15, 0.15, 0.2], [0.5, 0.5, 0.7]]
       enable_color_temperature: False 
       temperature_k_range: [4000.0, 30000.0]
@@ -66,7 +73,7 @@ light_creator:
     - type: "DistantLight"
       position_range: {x: [-10.0, 10.0], y: [-10.0, 10.0], z: [5.0, 15.0]} 
       orientation_euler_range: {x: [-60.0,60.0], y: [-60.0,60.0], z: [-1.0,1.0]}
-      intensity_range: [900.0, 1500.0]
+      intensity_range: [1000.0, 1500.0]
       color_range: [[0.5, 0.6, 0.2], [1.0, 1.0, 1.0]]
       angle_range: [0.5, 2.5]
 
@@ -75,7 +82,7 @@ asset_spawner:
   scene_origin_xyz: [0.0, 0.0, 0.0]       
   cm_to_m_scale_factor: 0.01
   asset_material_application_probability: 0.8 
-  asset_type_choice_override: "container" #iserisci per debug  "pallet", "container" 
+  asset_type_choice_override: null #iserisci per debug  "pallet", "container" 
   random_asset_rotation_z_range: [0.0, 360.0] #0 a 360 
 
   pallet:
@@ -104,14 +111,14 @@ asset_spawner:
     prim_name_instance_base: "ImportedContainer"
 
 box_spawner: 
-  enable: False 
+  enable: True 
   num_to_spawn_range: [10,15]
   mass_kg: 1
   base_z_offset: 1.2
   z_jitter: 0.7      
   xy_jitter_range: [-0.3, 0.3] 
-  procedural_vs_asset_probability: 0.0  #probabilità di creare box casuali al posto di asset 0.75 default
-  asset_material_override_probability: 1.0 #probabilità di assegnare texture/materiali casuali agli asset caricati 0 defaul
+  procedural_vs_asset_probability: 0.75  #probabilità di creare box casuali al posto di asset 0.75 default
+  asset_material_override_probability: 0.0 #probabilità di assegnare texture/materiali casuali agli asset caricati 0 defaul
   asset_usd_paths: 
   - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/ArchVis/Industrial/Containers/Cardboard/Cardbox_A2.usd"
   - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/ArchVis/Industrial/Containers/Cardboard/Cardbox_A3.usd"
@@ -125,7 +132,7 @@ box_spawner:
   #stl
 
 object_creator_ycb: 
-  enable: True 
+  enable: False 
   asset_list:
     - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned/002_master_chef_can.usd"
     - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned/003_cracker_box.usd"
@@ -159,10 +166,11 @@ object_creator_ycb:
   asset_material_override_probability: 0.75
 
 replicator:
-  resolution_wh: [1920, 1080]           
+  resolution_wh: [1280, 720]           
   renderer_active: "rtx"                
   rtx_rendermode: "PathTracing"         
-  rtx_pathtracing_spp: 64            
+  rtx_pathtracing_spp: 64   
+  stereo_baseline: 0.08
   annotators_to_attach:
     - "rgb"
     - "instance_segmentation"
@@ -191,10 +199,11 @@ replicator:
 #flag che mette dentro il box / se false a caso
 #se uno oggetto sopra l' altro consideralo come oggetti diversi (2) ->componenti connesse opencv skimage 
 
-
-# depth piu reale 
 # istance segm, rgb , k , depth image, pc, istancesegmentation.png
 # possibilita usare oggetti gia fatti
+
+# depth piu reale 
+
 
 
 #angolo approccio normale 

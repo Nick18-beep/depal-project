@@ -370,3 +370,6 @@ def disable_walls(stage: Usd.Stage, wall_paths, remove=True):
         else:
             UsdPhysics.CollisionAPI(prim).CreateCollisionEnabledAttr().Set(False)
             UsdGeom.Imageable(prim).CreateVisibilityAttr().Set("invisible")
+
+# In depal_utils/scene_setup_utils.py
+# In depal_utils/scene_setup_utils.py

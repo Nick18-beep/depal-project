@@ -55,7 +55,7 @@ def generate_k_matrix(camera_params_path: str) -> np.ndarray | None:
 if __name__ == "__main__":
   
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    relative_path_to_json = os.path.join("..", "output", "img1", "camera_params_0000.json")
+    relative_path_to_json = os.path.join("..", "output", "img1", "left","camera_params","camera_params_0000.json")
     json_file_path = os.path.abspath(os.path.join(script_dir, relative_path_to_json))
     
     print(f"Percorso calcolato per il file JSON: {json_file_path}") # Stampa di debug
