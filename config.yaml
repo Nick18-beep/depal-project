@@ -1,7 +1,7 @@
 # config.yaml
 
 simulation_setup:
-  headless: True
+  headless: False
   # renderer: "PathTracing" 
   num_images_to_generate: 1
   simulation_updates_after_setup: 200 
@@ -82,7 +82,7 @@ asset_spawner:
   scene_origin_xyz: [0.0, 0.0, 0.0]       
   cm_to_m_scale_factor: 0.01
   asset_material_application_probability: 0.8 
-  asset_type_choice_override: null #iserisci per debug  "pallet", "container" 
+  asset_type_choice_override: "pallet" #iserisci per debug  "pallet", "container" 
   random_asset_rotation_z_range: [0.0, 360.0] #0 a 360 
 
   pallet:
@@ -113,7 +113,7 @@ asset_spawner:
 box_spawner: 
   enable: True 
   num_to_spawn_range: [10,15]
-  mass_kg: 1
+  mass_kg: 0.02
   base_z_offset: 1.2
   z_jitter: 0.7      
   xy_jitter_range: [-0.3, 0.3] 

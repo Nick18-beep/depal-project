@@ -56,9 +56,11 @@ def main_simulation():
         import src.light_creator as light_creator_module
         import src.object_creator as object_creator_module
         import src.container_pallet_creator as container_pallet_creator_module
-           
+        import src.grip as grip
+        
         from depal_utils import scene_setup_utils 
         from depal_utils import replicator_utils
+        from depal_utils import stage_utils
    
         print("Moduli Omni, PXR, SRC e Utils importati con successo post-inizializzazione app.")
     except ImportError as e:
@@ -76,6 +78,7 @@ def main_simulation():
         material_creator_cfg = config.get('material_creator',{})
         probability_activation_wall = config["invisible_wall_during_fall"]["probability_activation"]
         stereo_cam_cfg =config["stereo_camera_setup"]
+        
         
 
         scene_origin_np = np.array(asset_spawn_cfg.get('scene_origin_xyz', [0.0, 0.0, 0.0]))
@@ -136,7 +139,7 @@ def main_simulation():
 
 
             if box_spawn_cfg.get('enable', True): 
-                scene_setup_utils.spawn_boxes_on_scene(
+                spawned_box_prim_paths=scene_setup_utils.spawn_boxes_on_scene(
                     stage, box_creator_module, Gf, box_spawn_cfg, 
                     paths_cfg['box_parent_usd'], scene_origin_np, pbr_direct_mat_paths 
                 )
@@ -144,6 +147,7 @@ def main_simulation():
             else:
                 print("Istanziazione scatole (box_spawner) disabilitata.")
             
+            print(spawned_box_prim_paths)
             
             for _ in range(50):
                 simulation_app.update() 
@@ -170,10 +174,87 @@ def main_simulation():
             image_output_directory = os.path.join(current_script_dir, paths_cfg['output_replicator_dir_base'], f"img{img_idx}")
             os.makedirs(image_output_directory, exist_ok=True)
    
-            replicator_utils.run_replicator_data_generation(
-                simulation_app, timeline, rep, carb, config['replicator'], 
-                paths_cfg['camera_prim_usd'],image_output_directory
+            #replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], paths_cfg['camera_prim_usd'],image_output_directory)
+
+
+
+            config_target_prim_to_grasp = "/World/MyTargetCube"
+            
+
+
+            config_initial_box_path = "/Box"
+            config_box_mass = 0.020
+            config_absolute_grip_force = 5000.0 # Assicurati sia float
+            config_grip_force_multiplier = 500.0
+            config_lift_speed_vertical = 2 # Modificato per un movimento più lento/controllato
+
+
+
+
+            config_target_lift_height = 5
+            config_target_horizontal_position = np.array([3, 3]) # posizione finale cubo
+            config_z_correction_factor = 15.0
+            config_max_z_correction_speed_factor = 2.0
+            config_cone_height = 0.2
+            config_cone_radius = 0.1
+            config_move_speed_horizontal = 2
+            config_grasp_offset = config_cone_height/2
+
+
+
+
+            config_steps_for_cube_to_settle = 60
+            config_steps_grace_period_after_settle = 30
+            config_steps_wait_before_grip_attempt = 120
+            config_steps_wait_after_grip_refresh = 40
+
+
+
+
+            print(f"  Config: Target Prim='{config_target_prim_to_grasp if config_target_prim_to_grasp else f'Default Box ({config_initial_box_path})'}'")
+            print(f"  Config: Grasp Offset={config_grasp_offset:.4f}m, Absolute Grip Force={config_absolute_grip_force if config_absolute_grip_force is not None else 'N/A (Using Multiplier)'}, Lift Speed={config_lift_speed_vertical}m/s")
+
+
+            stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
+
+            print("\nCreating new SurfaceGripperDirectScript instance...")
+            gripper_script_runner_instance = grip.SurfaceGripperDirectScript(
+                
+                target_object_prim_path="/World/SpawnedBasicBoxes/BasicBox_0",
+                grasp_offset_from_top=config_grasp_offset,
+                initial_box_prim_path=config_initial_box_path,
+                box_mass=config_box_mass,
+                absolute_grip_force=config_absolute_grip_force,
+                grip_force_multiplier=config_grip_force_multiplier,
+                target_lift_height=config_target_lift_height,
+                target_horizontal_position=config_target_horizontal_position,
+                z_correction_factor=config_z_correction_factor,
+                max_z_correction_speed_factor=config_max_z_correction_speed_factor,
+                cone_height=config_cone_height,
+                cone_radius=config_cone_radius,
+                lift_speed_vertical=config_lift_speed_vertical,
+                move_speed_horizontal=config_move_speed_horizontal,
+                steps_for_cube_to_settle=config_steps_for_cube_to_settle,
+                steps_grace_period_after_settle=config_steps_grace_period_after_settle,
+                steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
+                steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh
             )
+
+           
+
+            print("Running simulation script...")
+            gripper_script_runner_instance.run()
+
+
+            for _ in range(800):
+                    simulation_app.update() 
+            stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+
+
+            while True:
+                simulation_app.update()
+           
+
 
 
          
