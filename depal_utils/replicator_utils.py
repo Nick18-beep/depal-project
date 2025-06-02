@@ -562,12 +562,6 @@ def run_replicator_data_generation(
         rep_module.orchestrator.step()
         rep_module.wait_until_complete()
 
-       
-
-        
-        writer.detach()
-        rp_left.destroy()
-        rp_right.destroy()
         
        
         for _ in range(10):
@@ -575,16 +569,6 @@ def run_replicator_data_generation(
         
         
         
-        
-
-
-
-
-        
-        
-        
-
-
 
 
 

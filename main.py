@@ -334,7 +334,7 @@ def main_simulation():
                         image_height      = 720,
                         output_image_path = output_pick+str("/pick_object.png"),
                         roll_deg          = 90.0,               # sensore verticale
-                        circle_color      = 1,    # bianco
+                        circle_color      = gripper_script_runner_instance.grip_status_code,    # bianco
                         
                     )
 

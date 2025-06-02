@@ -1,9 +1,9 @@
 # config.yaml
 
 simulation_setup:
-  headless: False
+  headless: True
   # renderer: "PathTracing" 
-  num_images_to_generate: 1
+  num_images_to_generate: 5
   simulation_updates_after_setup: 200 
 
 paths:
