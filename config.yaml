@@ -82,7 +82,7 @@ asset_spawner:
   scene_origin_xyz: [0.0, 0.0, 0.0]       
   cm_to_m_scale_factor: 0.01
   asset_material_application_probability: 0.8 
-  asset_type_choice_override: "pallet" #iserisci per debug  "pallet", "container" 
+  asset_type_choice_override: "container" #iserisci per debug  "pallet", "container" 
   random_asset_rotation_z_range: [0.0, 360.0] #0 a 360 
 
   pallet:
@@ -112,12 +112,12 @@ asset_spawner:
 
 box_spawner: 
   enable: True 
-  num_to_spawn_range: [10,15]
+  num_to_spawn_range: [5,10]
   mass_kg: 0.02
   base_z_offset: 1.2
   z_jitter: 0.7      
   xy_jitter_range: [-0.3, 0.3] 
-  procedural_vs_asset_probability: 0.75  #probabilità di creare box casuali al posto di asset 0.75 default
+  procedural_vs_asset_probability: 1  #probabilità di creare box casuali al posto di asset 0.75 default
   asset_material_override_probability: 0.0 #probabilità di assegnare texture/materiali casuali agli asset caricati 0 defaul
   asset_usd_paths: 
   - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/ArchVis/Industrial/Containers/Cardboard/Cardbox_A2.usd"

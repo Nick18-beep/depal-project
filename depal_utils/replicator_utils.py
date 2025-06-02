@@ -557,16 +557,30 @@ def run_replicator_data_generation(
         
         writer.attach([rp_left,rp_right])
 
-        rep_module.orchestrator.set_next_rt_subframes(64)             
+        rep_module.orchestrator.set_next_rt_subframes(64)  
+           
         rep_module.orchestrator.step()
+        rep_module.wait_until_complete()
 
+       
+
+        
+        writer.detach()
+        rp_left.destroy()
+        rp_right.destroy()
+        
+       
+        for _ in range(10):
+            simulation_app.update()
+        
+        
+        
         
 
 
 
 
-        simulation_app.update()
-        simulation_app.update()
+        
         
         
 
@@ -580,7 +594,8 @@ def run_replicator_data_generation(
     
     depth_npy_basename = "left\distance_to_image_plane\distance_to_image_plane_0000.npy" 
     input_npy_filepath = os.path.join(output_dir_root, depth_npy_basename)
-
+    conversione = False
+    
     if os.path.exists(input_npy_filepath):
         print(f"  Trovato file di profondità: '{input_npy_filepath}'")
         try:

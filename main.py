@@ -49,6 +49,7 @@ def main_simulation():
         from omni.isaac.core.utils import prims as prims_utils
         import omni.replicator.core as rep
         import carb
+        from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdPhysics, UsdShade, Usd
    
         import src.material_creator as material_creator_module
         import src.scene_creator as scene_creator_module
@@ -61,7 +62,9 @@ def main_simulation():
         from depal_utils import scene_setup_utils 
         from depal_utils import replicator_utils
         from depal_utils import stage_utils
-   
+        from depal_utils import generate_K_matrix
+        from depal_utils import generate_image_pick
+
         print("Moduli Omni, PXR, SRC e Utils importati con successo post-inizializzazione app.")
     except ImportError as e:
         print(f"ERRORE CRITICO: Importazione moduli fallita dopo inizializzazione SimulationApp: {e}")
@@ -174,9 +177,19 @@ def main_simulation():
             image_output_directory = os.path.join(current_script_dir, paths_cfg['output_replicator_dir_base'], f"img{img_idx}")
             os.makedirs(image_output_directory, exist_ok=True)
    
-            #replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], paths_cfg['camera_prim_usd'],image_output_directory)
+            replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], paths_cfg['camera_prim_usd'],image_output_directory)
+            rep.orchestrator.set_capture_on_play(False)
 
+           
 
+            
+            
+
+            
+
+            carb_s = carb.settings.get_settings()
+            carb_s.set_string("/renderer/active", "rtx")
+            carb_s.set_string("/rtx/rendermode", "rtx")
 
             config_target_prim_to_grasp = "/World/MyTargetCube"
             
@@ -191,8 +204,8 @@ def main_simulation():
 
 
 
-            config_target_lift_height = 5
-            config_target_horizontal_position = np.array([3, 3]) # posizione finale cubo
+            config_target_lift_height = 2 #5
+            config_target_horizontal_position = np.array([3, 3]) # posizione finale cubo 3 3
             config_z_correction_factor = 15.0
             config_max_z_correction_speed_factor = 2.0
             config_cone_height = 0.2
@@ -215,44 +228,138 @@ def main_simulation():
             print(f"  Config: Grasp Offset={config_grasp_offset:.4f}m, Absolute Grip Force={config_absolute_grip_force if config_absolute_grip_force is not None else 'N/A (Using Multiplier)'}, Lift Speed={config_lift_speed_vertical}m/s")
 
 
+            # --- path della camera -------------------------------------------------
+            stereo_cam_left_path = "/Replicator/stereo_cam/stereo_cam_L_Xform/stereo_cam_L"
+            cam_prim = stage.GetPrimAtPath(stereo_cam_left_path)
+
+
+                    # --- matrice world→camera ---------------------------------------------
+                    # 1) local→world (Gf.Matrix4d)
+            xform_cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+            local_to_world_gf = xform_cache.GetLocalToWorldTransform(cam_prim)
+
+
+                    # 2) world→camera = inverse(local→world)
+            world_to_camera_gf = local_to_world_gf.GetInverse()        # ancora Gf.Matrix4d
+
+
+                    # 3) converti in numpy e separa R e t
+            world_to_camera_np = np.array(world_to_camera_gf)          # shape (4,4)
+            R_world2cam = world_to_camera_np[:3, :3]                   # rotazione 3×3
+            t_world2cam = world_to_camera_np[:3,  3]                   # traslazione 3×1
+
+
+            print("R_world2cam =\n", R_world2cam)
+            print("t_world2cam =\n", t_world2cam)
+            cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+            l2w: Gf.Matrix4d = cache.GetLocalToWorldTransform(stage.GetPrimAtPath(stereo_cam_left_path))
+            cam_pos = l2w.ExtractTranslation()          # Gf.Vec3d (x,y,z)
+
             stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
 
-            print("\nCreating new SurfaceGripperDirectScript instance...")
-            gripper_script_runner_instance = grip.SurfaceGripperDirectScript(
+            if spawned_box_prim_paths and len(spawned_box_prim_paths) > 0 :
+                print(f"\n--- Starting grip operations for {len(spawned_box_prim_paths)} boxes for image {img_idx} ---")
                 
-                target_object_prim_path="/World/SpawnedBasicBoxes/BasicBox_0",
-                grasp_offset_from_top=config_grasp_offset,
-                initial_box_prim_path=config_initial_box_path,
-                box_mass=config_box_mass,
-                absolute_grip_force=config_absolute_grip_force,
-                grip_force_multiplier=config_grip_force_multiplier,
-                target_lift_height=config_target_lift_height,
-                target_horizontal_position=config_target_horizontal_position,
-                z_correction_factor=config_z_correction_factor,
-                max_z_correction_speed_factor=config_max_z_correction_speed_factor,
-                cone_height=config_cone_height,
-                cone_radius=config_cone_radius,
-                lift_speed_vertical=config_lift_speed_vertical,
-                move_speed_horizontal=config_move_speed_horizontal,
-                steps_for_cube_to_settle=config_steps_for_cube_to_settle,
-                steps_grace_period_after_settle=config_steps_grace_period_after_settle,
-                steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
-                steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh
-            )
+                
+                for i, box_prim_path in enumerate(spawned_box_prim_paths):
+                    print(f"\n  Processing grip for box {i+1}/{len(spawned_box_prim_paths)}: {box_prim_path}")
+                    box_path="/World/SpawnedBasicBoxes/BasicBox_"+str(i)
 
-           
+                    print("\nCreating new SurfaceGripperDirectScript instance...")
+                    gripper_script_runner_instance = grip.SurfaceGripperDirectScript(
+                        
+                        target_object_prim_path=box_path,
+                        grasp_offset_from_top=config_grasp_offset,
+                        initial_box_prim_path=config_initial_box_path,
+                        box_mass=config_box_mass,
+                        absolute_grip_force=config_absolute_grip_force,
+                        grip_force_multiplier=config_grip_force_multiplier,
+                        target_lift_height=config_target_lift_height,
+                        target_horizontal_position=config_target_horizontal_position,
+                        z_correction_factor=config_z_correction_factor,
+                        max_z_correction_speed_factor=config_max_z_correction_speed_factor,
+                        cone_height=config_cone_height,
+                        cone_radius=config_cone_radius,
+                        lift_speed_vertical=config_lift_speed_vertical,
+                        move_speed_horizontal=config_move_speed_horizontal,
+                        steps_for_cube_to_settle=config_steps_for_cube_to_settle,
+                        steps_grace_period_after_settle=config_steps_grace_period_after_settle,
+                        steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
+                        steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh
+                    )
 
-            print("Running simulation script...")
-            gripper_script_runner_instance.run()
+                
+
+                    print("Running simulation script...")
+                    gripper_script_runner_instance.run()
+                    while not gripper_script_runner_instance.is_task_complete():
+                        simulation_app.update()
+
+                   
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    relative_path_to_json = os.path.join( "output", "img1", "left","camera_params","camera_params_0000.json")
+                    json_file_path = os.path.abspath(os.path.join(script_dir, relative_path_to_json))
+                    
+                    print(f"Percorso calcolato per il file JSON: {json_file_path}") # Stampa di debug
+                    
+                    K_matrix = generate_K_matrix.generate_k_matrix(json_file_path)
+                    print(K_matrix)
+
+                  
+
+                    print("posizione oggetto, ",gripper_script_runner_instance.initial_cone_placement_position_world)
+
+                    
+                    
+                    
 
 
-            for _ in range(800):
-                    simulation_app.update() 
-            stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+                    
+                     
+                    print("altezza ",cam_pos[2])
 
 
-            while True:
-                simulation_app.update()
+
+                    output_pick = os.path.join(current_script_dir, paths_cfg['output_replicator_dir_base'], f"img{img_idx}","left","pick")
+                    os.makedirs(output_pick, exist_ok=True)
+                  
+                    
+                    generate_image_pick.project_circle_topdown(
+                        radius_m          = config_cone_radius,               # raggio in metri
+                        center_world_m= gripper_script_runner_instance.initial_cone_placement_position_world, # centro 3-D  (X,Y,Z)
+                        orientation_wxyz  = gripper_script_runner_instance.initial_cone_orientation, # orientamento
+                        camera_height_m   = cam_pos[2] ,
+                        K_matrix_3x3      = K_matrix,
+                        image_width       = 1280,
+                        image_height      = 720,
+                        output_image_path = output_pick+str("/pick_object.png"),
+                        roll_deg          = 90.0,               # sensore verticale
+                        circle_color      = 1,    # bianco
+                        
+                    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    
+                    stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+
+            else:
+                print("box insufficienti")
+            
            
 
 

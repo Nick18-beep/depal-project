@@ -87,6 +87,7 @@ class SurfaceGripperDirectScript:
         self.cone_usd_prim_created: bool = False
         self.cone_sg_initialized: bool = False
         self.cone_physics_dynamically_enabled: bool = False
+        self.task_complete= False
 
         self.color_closed = Gf.Vec3f(1.0, 0.2, 0.2)
         self.color_open = Gf.Vec3f(0.2, 1.0, 0.2)
@@ -105,6 +106,13 @@ class SurfaceGripperDirectScript:
                      float(imag_part_sgp_d[1]),
                      float(imag_part_sgp_d[2]))
         )
+
+        self.grip_status_code=0
+        
+
+        
+
+        
 
         print("SurfaceGripperDirectScript instance created:")
         print(f"  Target: {self.object_to_grasp_path}")
@@ -468,8 +476,16 @@ class SurfaceGripperDirectScript:
             return
         cone_start_pos_gf, cone_orientation_gf, _ = grasp_pose_data 
 
+        self.initial_cone_placement_position_world = np.array([
+            cone_start_pos_gf[0],
+            cone_start_pos_gf[1],
+            cone_start_pos_gf[2]
+        ], dtype=np.float32)
+
         cone_rot_img = cone_orientation_gf.GetImaginary()
         print(f"Creating cone USD prim at Pos: {cone_start_pos_gf}, Rot (Quatf WXYZ): {cone_orientation_gf.GetReal():.4f}, {cone_rot_img[0]:.4f}, {cone_rot_img[1]:.4f}, {cone_rot_img[2]:.4f}")
+
+        self.initial_cone_orientation = (cone_orientation_gf.GetReal(),cone_rot_img[0],cone_rot_img[1],cone_rot_img[2])
 
         cone_geom = self._create_rigid_body_usd(
             UsdGeom.Cone, "/GripperCone", mass=0.01, position=cone_start_pos_gf, 
@@ -490,6 +506,7 @@ class SurfaceGripperDirectScript:
             print(f"Physics for {cone_prim_usd.GetPath()} initially set to KINEMATIC.")
             self.cone_usd_prim_created = True
             self.cone_physics_dynamically_enabled = False
+            self.step_of_cone_creation=self._sim_step
         else:
             print(f"ERROR (_create_cone_usd_prim): Could not apply RigidBodyAPI for {cone_prim_usd.GetPath()}.")
             self.cone_usd_prim_created = False
@@ -567,6 +584,25 @@ class SurfaceGripperDirectScript:
             if self._sim_step % 120 == 0: print(f"SIM_STEP {self._sim_step}: Stage invalid. Stopping updates.")
             if self._physx_sub: self._physx_sub.unsubscribe(); self._physx_sub = None
             return
+        
+        # ---- TIMEOUT CHECK FOR INITIAL GRIP CLOSURE (Code 1) ----
+        if not self.task_complete and \
+           self.gripper_close_command_sent and \
+           self.cone_sg_initialized and \
+           self.surface_gripper and not self.surface_gripper.is_closed() and \
+           self._sim_step > (self.steps_for_sg_init_and_grip_attempt + 10): #tempo che attenfo prima di ritornare
+            print(f"SIM_STEP {self._sim_step}: TIMEOUT - Gripper did not close after {10} additional steps (total steps: {self._sim_step}, init_attempt_step: {self.steps_for_sg_init_and_grip_attempt}). Status: 1.")        
+            self.grip_status_code = 1
+            self.movement_phase = "done" # Stop any potential future movement
+            self.task_complete = True
+            if self.surface_gripper: # Attempt to open it to reset state
+                try: self.surface_gripper.open()
+                except Exception: pass
+            if self.cone_prim_handle and self.cone_prim_handle.is_valid():
+                try: self.cone_prim_handle.set_linear_velocity(np.zeros(3, dtype=np.float32))
+                except RuntimeError: pass # Already stopping or error setting velocity
+            # Let the function flow to the "done" phase logic at the end
+
 
         if self._sim_step % 120 == 15: 
             if self.target_srp_handle and self.target_srp_handle.is_valid():
@@ -637,6 +673,16 @@ class SurfaceGripperDirectScript:
                  return
             else: 
                 self.cone_prim_handle = self._refresh_prim_handle("/GripperCone", self.cone_prim_handle)
+
+
+
+       
+
+
+
+
+
+
 
         if self.cone_usd_prim_created and not self.cone_sg_initialized and self._sim_step >= self.steps_for_sg_init_and_grip_attempt:
             print(f"SIM_STEP {self._sim_step}: Cone USD prim created. Waiting period over. Attempting to initialize SG at step {self.steps_for_sg_init_and_grip_attempt}.")
@@ -744,6 +790,19 @@ class SurfaceGripperDirectScript:
                 return
 
             current_cone_pos_np: Optional[np.ndarray] = None
+
+            if not self.task_complete and self.surface_gripper and not self.surface_gripper.is_closed() and self.movement_phase not in ["releasing", "done"] and self.cone_physics_dynamically_enabled: # Implica che la presa era stata stabilita
+            
+                print(f"SIM_STEP {self._sim_step} (Movement - Phase {self.movement_phase}): GRIP LOST! Status: 2.")
+                
+                self.grip_status_code = 2
+                self.movement_phase = "releasing" # Transita alla fase di rilascio/termine
+                self.task_complete = True
+                if self.cone_prim_handle and self.cone_prim_handle.is_valid():
+                    try: self.cone_prim_handle.set_linear_velocity(np.zeros(3, dtype=np.float32))
+                    except RuntimeError: pass
+
+
             try:
                 current_cone_pos_tuple, _ = self.cone_prim_handle.get_world_pose() 
                 if current_cone_pos_tuple is None or len(current_cone_pos_tuple) != 3:
@@ -825,6 +884,7 @@ class SurfaceGripperDirectScript:
 
 
         if self.movement_phase == "done":
+            self.grip_status_code = 3
             if self.cone_prim_handle and self.cone_prim_handle.is_valid() and self.cone_physics_dynamically_enabled:
                 try:
                     _, current_lin_vel_tuple, _ = self.cone_prim_handle.get_velocities() 
@@ -833,12 +893,17 @@ class SurfaceGripperDirectScript:
                         self.cone_prim_handle.set_linear_velocity(np.zeros(3, dtype=np.float32))
                 except (RuntimeError, TypeError, IndexError, AttributeError): pass 
                 except Exception: pass 
-           
+
+            self.task_complete = True
+
             if self._sim_step > self.steps_before_initial_lift_phase + 300: 
                 if self._sim_step % 240 == 0 : 
                     sg_status = "N/A"
                     if self.surface_gripper: sg_status = "Closed" if self.surface_gripper.is_closed() else "Open"
                     print(f"SIM_STEP {self._sim_step}: Movement phase 'done'. Gripper: {sg_status}. Sim continues. (Consider stopping sim or resetting script if task is complete)")
+
+    def is_task_complete(self):
+        return self.task_complete
 
     def run(self):
         print("SurfaceGripperDirectScript.run() called. Initializing states...")
