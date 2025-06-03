@@ -560,7 +560,7 @@ def run_replicator_data_generation(
         rep_module.orchestrator.set_next_rt_subframes(64)  
            
         rep_module.orchestrator.step()
-        rep_module.wait_until_complete()
+        
 
         
        

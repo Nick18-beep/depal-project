@@ -150,7 +150,7 @@ def main_simulation():
             else:
                 print("Istanziazione scatole (box_spawner) disabilitata.")
             
-            print(spawned_box_prim_paths)
+            
             
             for _ in range(50):
                 simulation_app.update() 
@@ -196,9 +196,9 @@ def main_simulation():
 
 
             config_initial_box_path = "/Box"
-            config_box_mass = 0.020
-            config_absolute_grip_force = 5000.0 # Assicurati sia float
-            config_grip_force_multiplier = 500.0
+            config_box_mass = 0.02
+            config_absolute_grip_force = 0.6 # Assicurati sia float 5000.0
+            config_grip_force_multiplier = 1.0 #500.0
             config_lift_speed_vertical = 2 # Modificato per un movimento più lento/controllato
 
 
@@ -257,7 +257,7 @@ def main_simulation():
 
             stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
 
-            if spawned_box_prim_paths and len(spawned_box_prim_paths) > 0 :
+            if box_spawn_cfg['enable'] and spawned_box_prim_paths and len(spawned_box_prim_paths) > 0  :
                 print(f"\n--- Starting grip operations for {len(spawned_box_prim_paths)} boxes for image {img_idx} ---")
                 
                 

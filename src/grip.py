@@ -40,7 +40,7 @@ class SurfaceGripperDirectScript:
         steps_wait_before_grip_attempt: int = 120,
         steps_wait_after_cone_usd_creation: int = 5,
         steps_wait_after_grip_refresh: int = 40,
-        debug_pose_calculation: bool = True
+        debug_pose_calculation: bool = False
     ):
         self._timeline = omni.timeline.get_timeline_interface()
         self._usd_context = omni.usd.get_context()
@@ -553,9 +553,9 @@ class SurfaceGripperDirectScript:
             sgp.forceLimit = min_force_to_hold * self.grip_force_multiplier
             print(f"Using MULTIPLIER ({self.grip_force_multiplier}x) on F_grav ({min_force_to_hold:.2f}N). Grip F_limit: {sgp.forceLimit:.2f} N")
 
-        sgp.torqueLimit = 100.0 
-        sgp.stiffness = 1.0e4   
-        sgp.damping = 1.0e3     
+        sgp.torqueLimit = 5.0 #100.0
+        sgp.stiffness = 300   #1.0e4
+        sgp.damping = 50     #1.0e3
         sgp.retryClose = True   
 
         self.surface_gripper = Surface_Gripper()
@@ -590,10 +590,10 @@ class SurfaceGripperDirectScript:
            self.gripper_close_command_sent and \
            self.cone_sg_initialized and \
            self.surface_gripper and not self.surface_gripper.is_closed() and \
-           self._sim_step > (self.steps_for_sg_init_and_grip_attempt + 10): #tempo che attenfo prima di ritornare
-            print(f"SIM_STEP {self._sim_step}: TIMEOUT - Gripper did not close after {10} additional steps (total steps: {self._sim_step}, init_attempt_step: {self.steps_for_sg_init_and_grip_attempt}). Status: 1.")        
+           self._sim_step > (self.steps_for_sg_init_and_grip_attempt + 500): #tempo che attenfo prima di ritornare
+            print(f"SIM_STEP {self._sim_step}: TIMEOUT - Gripper did not close after {500} additional steps (total steps: {self._sim_step}, init_attempt_step: {self.steps_for_sg_init_and_grip_attempt}). Status: 1.")        
             self.grip_status_code = 1
-            self.movement_phase = "done" # Stop any potential future movement
+            #self.movement_phase = "done" # Stop any potential future movement teso un attimo
             self.task_complete = True
             if self.surface_gripper: # Attempt to open it to reset state
                 try: self.surface_gripper.open()
@@ -796,7 +796,7 @@ class SurfaceGripperDirectScript:
                 print(f"SIM_STEP {self._sim_step} (Movement - Phase {self.movement_phase}): GRIP LOST! Status: 2.")
                 
                 self.grip_status_code = 2
-                self.movement_phase = "releasing" # Transita alla fase di rilascio/termine
+                #self.movement_phase = "releasing" # Transita alla fase di rilascio/termine testo un attimo
                 self.task_complete = True
                 if self.cone_prim_handle and self.cone_prim_handle.is_valid():
                     try: self.cone_prim_handle.set_linear_velocity(np.zeros(3, dtype=np.float32))
@@ -884,7 +884,7 @@ class SurfaceGripperDirectScript:
 
 
         if self.movement_phase == "done":
-            self.grip_status_code = 3
+            
             if self.cone_prim_handle and self.cone_prim_handle.is_valid() and self.cone_physics_dynamically_enabled:
                 try:
                     _, current_lin_vel_tuple, _ = self.cone_prim_handle.get_velocities() 
@@ -893,10 +893,11 @@ class SurfaceGripperDirectScript:
                         self.cone_prim_handle.set_linear_velocity(np.zeros(3, dtype=np.float32))
                 except (RuntimeError, TypeError, IndexError, AttributeError): pass 
                 except Exception: pass 
-
-            self.task_complete = True
+            
 
             if self._sim_step > self.steps_before_initial_lift_phase + 300: 
+                self.grip_status_code = 3
+                self.task_complete = True
                 if self._sim_step % 240 == 0 : 
                     sg_status = "N/A"
                     if self.surface_gripper: sg_status = "Closed" if self.surface_gripper.is_closed() else "Open"
