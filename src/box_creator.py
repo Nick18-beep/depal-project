@@ -4,13 +4,18 @@
 
 import random
 import numpy as np
-from pxr import Gf, UsdGeom, UsdPhysics, Sdf, UsdShade, Usd
+from pxr import Gf, UsdGeom, UsdPhysics, Sdf, UsdShade, Usd,UsdPhysics, PhysxSchema, Gf
 import os
 
 # Importazioni da Isaac Sim Core
 from omni.isaac.core.utils.prims import create_prim, get_prim_at_path # get_prim_at_path non usato qui ma buona pratica
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
 from omni.isaac.core.utils.semantics import add_update_semantics
+from omni.physx import get_physx_simulation_interface
+from omni.physx.scripts import physicsUtils  # contiene PhysicsSchemaTools
+
+
+
 
 
 def spawn_basic_boxes(
@@ -269,6 +274,20 @@ def spawn_basic_boxes(
         # Applica fisica e semantica all'Xform radice dell'asset/cubo
         UsdPhysics.CollisionAPI.Apply(asset_root_prim)
         UsdPhysics.RigidBodyAPI.Apply(asset_root_prim)
+
+        #PhysxSchema.PhysxContactReportAPI.Apply(asset_root_prim).CreateThresholdAttr().Set(0.0)    # forza-impulso minimo per il report
+        # dopo CollisionAPI e RigidBodyAPI …
+       
+
+
+
+
+
+
+
+
+
+
         mass_api = UsdPhysics.MassAPI.Apply(asset_root_prim)
         mass_api.CreateMassAttr().Set(box_mass)
 

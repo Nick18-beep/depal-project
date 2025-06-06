@@ -180,9 +180,8 @@ def main_simulation():
             replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], paths_cfg['camera_prim_usd'],image_output_directory)
             rep.orchestrator.set_capture_on_play(False)
 
-           
 
-            
+                    
             
 
             
@@ -256,6 +255,26 @@ def main_simulation():
             cam_pos = l2w.ExtractTranslation()          # Gf.Vec3d (x,y,z)
 
             stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
+            
+            
+
+            
+
+
+
+
+
+
+         
+                
+
+
+
+
+
+
+
+
 
             if box_spawn_cfg['enable'] and spawned_box_prim_paths and len(spawned_box_prim_paths) > 0  :
                 print(f"\n--- Starting grip operations for {len(spawned_box_prim_paths)} boxes for image {img_idx} ---")
@@ -285,7 +304,8 @@ def main_simulation():
                         steps_for_cube_to_settle=config_steps_for_cube_to_settle,
                         steps_grace_period_after_settle=config_steps_grace_period_after_settle,
                         steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
-                        steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh
+                        steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh,
+                        simulation_app=simulation_app
                     )
 
                 
@@ -294,6 +314,7 @@ def main_simulation():
                     gripper_script_runner_instance.run()
                     while not gripper_script_runner_instance.is_task_complete():
                         simulation_app.update()
+                    
 
                    
                     script_dir = os.path.dirname(os.path.abspath(__file__))

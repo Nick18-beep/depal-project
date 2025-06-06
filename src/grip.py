@@ -6,6 +6,7 @@ import omni
 import omni.kit.usd
 import omni.physx as _physx
 from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdPhysics, UsdShade, Usd
+from pxr import Gf, UsdGeom, UsdPhysics, Sdf, UsdShade, Usd,UsdPhysics, PhysxSchema, Gf
 import traceback
 
 from isaacsim.robot.surface_gripper._surface_gripper import (
@@ -13,6 +14,12 @@ from isaacsim.robot.surface_gripper._surface_gripper import (
     Surface_Gripper_Properties,
 )
 from isaacsim.core.prims import SingleRigidPrim
+
+from omni.physx.scripts import physicsUtils as phys_utils
+
+            # ──────────────────────────────────────────────────────────────
+from omni.physx import get_physx_simulation_interface
+from omni.physx.scripts import physicsUtils as phys_utils
 
 def _quat_identity() -> Gf.Quatf:
     return Gf.Quatf(1.0, 0.0, 0.0, 0.0)
@@ -38,9 +45,10 @@ class SurfaceGripperDirectScript:
         steps_for_cube_to_settle: int = 60,
         steps_grace_period_after_settle: int = 30,
         steps_wait_before_grip_attempt: int = 120,
-        steps_wait_after_cone_usd_creation: int = 5,
+        steps_wait_after_cone_usd_creation: int = 30,#5
         steps_wait_after_grip_refresh: int = 40,
-        debug_pose_calculation: bool = False
+        debug_pose_calculation: bool = False,
+        simulation_app = None
     ):
         self._timeline = omni.timeline.get_timeline_interface()
         self._usd_context = omni.usd.get_context()
@@ -108,6 +116,8 @@ class SurfaceGripperDirectScript:
         )
 
         self.grip_status_code=0
+        self._contact_sub = None
+        self.simulation_app=simulation_app
         
 
         
@@ -486,7 +496,7 @@ class SurfaceGripperDirectScript:
         print(f"Creating cone USD prim at Pos: {cone_start_pos_gf}, Rot (Quatf WXYZ): {cone_orientation_gf.GetReal():.4f}, {cone_rot_img[0]:.4f}, {cone_rot_img[1]:.4f}, {cone_rot_img[2]:.4f}")
 
         self.initial_cone_orientation = (cone_orientation_gf.GetReal(),cone_rot_img[0],cone_rot_img[1],cone_rot_img[2])
-
+        
         cone_geom = self._create_rigid_body_usd(
             UsdGeom.Cone, "/GripperCone", mass=0.01, position=cone_start_pos_gf, 
             orientation=cone_orientation_gf, color=self.color_open, 
@@ -500,6 +510,19 @@ class SurfaceGripperDirectScript:
 
         cone_prim_usd = self.cone_geom_usd.GetPrim()
         rigid_api = UsdPhysics.RigidBodyAPI.Apply(cone_prim_usd)
+
+        
+        #creo collione check
+        collision_api=UsdPhysics.CollisionAPI.Apply(cone_prim_usd)
+        
+
+        api = PhysxSchema.PhysxContactReportAPI.Apply(cone_prim_usd)
+        api.CreateThresholdAttr().Set(0.0)  
+
+       
+                   
+
+
         if rigid_api.GetPrim().IsValid():
             kinematic_attr = rigid_api.CreateKinematicEnabledAttr()
             kinematic_attr.Set(True, Usd.TimeCode.Default())
@@ -580,6 +603,9 @@ class SurfaceGripperDirectScript:
         self._sim_step += 1
         time_code_default = Usd.TimeCode.Default()
 
+        if ( self.task_complete ):
+            return 
+
         if not self._stage :
             if self._sim_step % 120 == 0: print(f"SIM_STEP {self._sim_step}: Stage invalid. Stopping updates.")
             if self._physx_sub: self._physx_sub.unsubscribe(); self._physx_sub = None
@@ -592,7 +618,8 @@ class SurfaceGripperDirectScript:
            self.surface_gripper and not self.surface_gripper.is_closed() and \
            self._sim_step > (self.steps_for_sg_init_and_grip_attempt + 500): #tempo che attenfo prima di ritornare
             print(f"SIM_STEP {self._sim_step}: TIMEOUT - Gripper did not close after {500} additional steps (total steps: {self._sim_step}, init_attempt_step: {self.steps_for_sg_init_and_grip_attempt}). Status: 1.")        
-            self.grip_status_code = 1
+            if(self.grip_status_code ==0):
+                self.grip_status_code = 1
             #self.movement_phase = "done" # Stop any potential future movement teso un attimo
             self.task_complete = True
             if self.surface_gripper: # Attempt to open it to reset state
@@ -602,6 +629,65 @@ class SurfaceGripperDirectScript:
                 try: self.cone_prim_handle.set_linear_velocity(np.zeros(3, dtype=np.float32))
                 except RuntimeError: pass # Already stopping or error setting velocity
             # Let the function flow to the "done" phase logic at the end
+
+        if not self.task_complete and \
+           self.cone_sg_initialized and \
+           self.gripper_close_command_sent and \
+           self.surface_gripper and self.movement_phase in ["idle","lifting"] : #tempo che attenfo prima di ritornare
+          
+
+
+            psi   = get_physx_simulation_interface()
+            
+
+
+            def _on_contact_report(contact_headers, _contact_data):
+                """
+                Callback PhysX eseguito a fine step.
+                Registra solo i contatti gripper-cone ↔ box_<n>.
+                Se nello stesso frame ce ne sono più di due, imposta grip_status_code a –1.
+                """
+                
+                collisions_this_step = 0
+
+
+                for h in contact_headers:
+                    # Decodifica gli ID interi → percorsi USD leggibili
+                    path0 = phys_utils.PhysicsSchemaTools.intToSdfPath(h.actor0)
+                    path1 = phys_utils.PhysicsSchemaTools.intToSdfPath(h.actor1)
+
+
+                    # Rendi l’ordine indifferente: gripper è sempre p0, box sempre p1
+                    if path0 == "/GripperCone" and str(path1).startswith("/World/SpawnedBasicBoxes/BasicBox_"):
+                        collisions_this_step += 1
+                        #print(f"[GRIPPER→BOX] cone  <-->  {path1}")
+                    elif path1 == "/GripperCone" and str(path0).startswith("/World/SpawnedBasicBoxes/BasicBox_"):
+                        collisions_this_step += 1
+                        #print(f"[GRIPPER→BOX]  cone <-->  {path0}")
+
+
+                # Aggiorna il codice di stato
+                if collisions_this_step > 1:
+                    
+                    self.grip_status_code = -1
+                    self.movement_phase = "done" # Transita alla fase di rilascio/termine testo un attimo
+                    self.task_complete = True
+                    print("HO 2 COLLISSIONI STACCO ")
+                    
+                    
+                
+
+
+
+
+
+         
+            # iscrizione (la facciamo una sola volta)
+            if self._contact_sub == None:
+                self._contact_sub = psi.subscribe_contact_report_events(_on_contact_report)
+
+                print("Contact-report callback registrato.")
+           
 
 
         if self._sim_step % 120 == 15: 
@@ -739,6 +825,8 @@ class SurfaceGripperDirectScript:
                 if not rigid_api: rigid_api = UsdPhysics.RigidBodyAPI.Apply(cone_prim_to_set_dynamic)
 
                 if rigid_api.GetPrim().IsValid(): 
+
+
                     kinematic_attr = rigid_api.GetKinematicEnabledAttr() 
                     if not kinematic_attr : kinematic_attr = rigid_api.CreateKinematicEnabledAttr() 
 
@@ -794,8 +882,8 @@ class SurfaceGripperDirectScript:
             if not self.task_complete and self.surface_gripper and not self.surface_gripper.is_closed() and self.movement_phase not in ["releasing", "done"] and self.cone_physics_dynamically_enabled: # Implica che la presa era stata stabilita
             
                 print(f"SIM_STEP {self._sim_step} (Movement - Phase {self.movement_phase}): GRIP LOST! Status: 2.")
-                
-                self.grip_status_code = 2
+                if(self.grip_status_code ==0):
+                    self.grip_status_code = 2
                 #self.movement_phase = "releasing" # Transita alla fase di rilascio/termine testo un attimo
                 self.task_complete = True
                 if self.cone_prim_handle and self.cone_prim_handle.is_valid():
@@ -896,7 +984,8 @@ class SurfaceGripperDirectScript:
             
 
             if self._sim_step > self.steps_before_initial_lift_phase + 300: 
-                self.grip_status_code = 3
+                if(self.grip_status_code ==0):
+                    self.grip_status_code = 3
                 self.task_complete = True
                 if self._sim_step % 240 == 0 : 
                     sg_status = "N/A"

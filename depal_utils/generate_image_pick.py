@@ -70,10 +70,11 @@ def project_circle_topdown(
 
     # Map integer code → RGB
     _code2rgb = {
-        1: (255, 64, 64),   # red non si chiude 
-        2: (255, 255, 0),   # yellow cade
-        3: (0, 255, 0),     # green corretto
-    }
+    1: (255, 64, 64),   # rosso
+    2: (255, 255, 0),   # giallo
+    3: (0, 255, 0),     # verde
+   -1: (128, 0, 128)    # viola 
+}
 
 
     # Determina i colori
