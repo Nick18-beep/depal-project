@@ -1,5 +1,8 @@
 from __future__ import annotations
-from typing import Optional, Tuple, List
+
+from typing import Optional, Tuple, List, Dict, Set
+from pxr import Usd, UsdGeom, Gf, Vt
+import omni.usd
 
 import numpy as np
 import omni
@@ -8,7 +11,7 @@ import omni.physx as _physx
 from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdPhysics, UsdShade, Usd
 from pxr import Gf, UsdGeom, UsdPhysics, Sdf, UsdShade, Usd,UsdPhysics, PhysxSchema, Gf
 import traceback
-
+import math
 from isaacsim.robot.surface_gripper._surface_gripper import (
     Surface_Gripper,
     Surface_Gripper_Properties,
@@ -53,7 +56,7 @@ class SurfaceGripperDirectScript:
         self._timeline = omni.timeline.get_timeline_interface()
         self._usd_context = omni.usd.get_context()
         self._physx_interface = _physx.get_physx_interface()
-        self._stage: Optional[omni.usd.Stage] = None
+        self._stage: Optional[omni.usd.Stage] =  self._usd_context.get_stage()
 
         self.surface_gripper: Optional[Surface_Gripper] = None
         self.cone_prim_handle: Optional[SingleRigidPrim] = None
@@ -118,6 +121,7 @@ class SurfaceGripperDirectScript:
         self.grip_status_code=0
         self._contact_sub = None
         self.simulation_app=simulation_app
+        self.grasp_pone_cone=None
         
 
         
@@ -138,173 +142,323 @@ class SurfaceGripperDirectScript:
 
 
 
-    def _get_target_object_grasp_pose(self, current_target_prim_path: str) -> Optional[Tuple[Gf.Vec3f, Gf.Quatf, Gf.Vec3f]]:
-        """
-        Calcola la posa di grasp basata sul bounding box locale del target,
-        applicando tutte le trasformazioni (rotazioni, scale, traslazioni USD)
-        e selezionando la faccia con la normale maggiormente orientata verso +Z.
-        Posiziona il cono in modo che la sua base tocchi la faccia.
-        Restituisce: (origine_cono_world, orientazione_cono_world, normale_surface_world)
-        """
-        if self.debug_pose_calculation:
-            print(f"\n--- Debug _get_target_object_grasp_pose per '{current_target_prim_path}' step {self._sim_step} ---")
 
+    def _get_target_object_grasp_pose(
+            self, current_target_prim_path: str
+    ) -> Optional[Tuple[Gf.Vec3f, Gf.Quatf, Gf.Vec3f]]:
+        """
+        Calcola la posa di grasp per il prim indicato. Supporta:
+            • UsdGeom.Mesh  (qualsiasi mesh triangolare/quad)
+            • UsdGeom.Cube  (primitives “Cube” di USD)
+
+        Restituisce (cone_origin, cone_orientation, surface_normal_world)
+        nelle stesse unità/spazi usati dal resto della classe.
+
+        Se nessuna delle due geometrie è trovata, fa fallback
+        al vecchio algoritmo basato sul bounding-box.
+        """
         if not self._stage:
-            print("ERROR (_get_target_object_grasp_pose): Stage non disponibile.")
+            print("ERROR: Stage non disponibile.")
             return None
 
-        input_target_prim = self._stage.GetPrimAtPath(current_target_prim_path)
-        if not input_target_prim or not input_target_prim.IsValid():
-            print(f"ERROR (_get_target_object_grasp_pose): Prim '{current_target_prim_path}' non valido.")
+        prim = self._stage.GetPrimAtPath(current_target_prim_path)
+        if not prim or not prim.IsValid():
+            print(f"ERROR: Prim '{current_target_prim_path}' non valido.")
             return None
-            
-        # Determina il prim effettivo su cui calcolare la geometria (potrebbe essere un figlio)
-        geom_prim_for_calc = input_target_prim
-        if input_target_prim.IsA(UsdGeom.Xform) and not input_target_prim.IsA(UsdGeom.Gprim):
-            if self.debug_pose_calculation: print(f"  Input target '{input_target_prim.GetPath()}' is Xform. Searching for Gprim child...")
-            found_gprim_child = None
-            for child in input_target_prim.GetChildren():
-                if child.IsA(UsdGeom.Boundable): # UsdGeom.Gprim eredita da Boundable
-                    imgbl = UsdGeom.Imageable(child)
-                    purpose = imgbl.GetPurposeAttr().Get()
-                    if purpose in [UsdGeom.Tokens.default_, UsdGeom.Tokens.render, UsdGeom.Tokens.proxy, UsdGeom.Tokens.guide]:
-                        found_gprim_child = child
-                        if self.debug_pose_calculation: print(f"    Found Boundable child: {child.GetPath()} with purpose '{purpose}'")
-                        break 
-            if found_gprim_child:
-                geom_prim_for_calc = found_gprim_child
-            else:
-                if self.debug_pose_calculation: print(f"    No suitable Gprim child found under Xform '{input_target_prim.GetPath()}'. Using Xform itself for bbox calculation (might be inaccurate if it has no extent).")
-        
-        if self.debug_pose_calculation: print(f"  Using prim '{geom_prim_for_calc.GetPath()}' (type: {geom_prim_for_calc.GetTypeName()}) for geometry and BBox calculations.")
 
-        # Bounding box di geom_prim_for_calc NEL SUO FRAME LOCALE
-        # Questo bound NON include la trasformazione di geom_prim_for_calc stesso.
-        bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_], useExtentsHint=True, ignoreVisibility=False)
-        geom_local_bbox_range = bbox_cache.ComputeUntransformedBound(geom_prim_for_calc).GetBox()
+        # ────────────────────────────────
+        # 1. Cerca una Mesh o un Cube nel sotto-albero
+        # ────────────────────────────────
+        mesh_prim = cube_prim = None
+        queue = [prim]
+        while queue and not (mesh_prim or cube_prim):
+            p = queue.pop(0)
+            if p.IsA(UsdGeom.Mesh):
+                mesh_prim = p
+                break
+            if p.IsA(UsdGeom.Cube):
+                cube_prim = p
+                # non usciamo subito: diamo priorità a una Mesh eventuale
+            queue.extend(p.GetChildren())
 
-        if geom_local_bbox_range.IsEmpty():
-            boundable_geom = UsdGeom.Boundable(geom_prim_for_calc)
-            extent_attr = boundable_geom.GetExtentAttr()
-            if extent_attr and extent_attr.HasValue():
-                extents_array = extent_attr.Get()
-                if extents_array and len(extents_array) == 2:
-                    geom_local_bbox_range = Gf.Range3d(Gf.Vec3d(extents_array[0]), Gf.Vec3d(extents_array[1]))
-                    if self.debug_pose_calculation: print(f"    BBox was empty, used extents for '{geom_prim_for_calc.GetPath()}': {geom_local_bbox_range}")
-            
-            if geom_local_bbox_range.IsEmpty():
-                print(f"ERROR: BBox and extents for '{geom_prim_for_calc.GetPath()}' are unusable.")
+        # ────────────────────────────────
+        # 2a. Caso Mesh  → algoritmo completo sulle facce
+        # ────────────────────────────────
+        if mesh_prim:
+            mesh = UsdGeom.Mesh(mesh_prim)
+            world_Xf = omni.usd.get_world_transform_matrix(mesh_prim)
+
+            pts_local = mesh.GetPointsAttr().Get()
+            if not pts_local:
+                print("ERROR: Mesh senza punti validi.")
                 return None
-        
-        min_l_geom = geom_local_bbox_range.GetMin()  # Gf.Vec3d
-        max_l_geom = geom_local_bbox_range.GetMax()  # Gf.Vec3d
-        center_l_geom = (min_l_geom + max_l_geom) * 0.5 # Gf.Vec3d
-        
-        if self.debug_pose_calculation:
-            dims_geom = max_l_geom - min_l_geom
-            print(f"  BBox of '{geom_prim_for_calc.GetPath()}' (in its own local frame, untransformed): min={min_l_geom}, max={max_l_geom}, center={center_l_geom}, dimensions={dims_geom}")
+            pts_world = [Gf.Vec3f(world_Xf.Transform(Gf.Vec3d(p))) for p in pts_local]
 
-        # Definizione facce (normali e offset dei centri) nel frame locale di geom_prim_for_calc
-        faces_in_geom_local_frame = [
-            (f"Face +X", Gf.Vec3f(1,0,0), Gf.Vec3f(float(max_l_geom[0]), float(center_l_geom[1]), float(center_l_geom[2]))),
-            (f"Face -X", Gf.Vec3f(-1,0,0),Gf.Vec3f(float(min_l_geom[0]), float(center_l_geom[1]), float(center_l_geom[2]))),
-            (f"Face +Y", Gf.Vec3f(0,1,0), Gf.Vec3f(float(center_l_geom[0]), float(max_l_geom[1]), float(center_l_geom[2]))),
-            (f"Face -Y", Gf.Vec3f(0,-1,0),Gf.Vec3f(float(center_l_geom[0]), float(min_l_geom[1]), float(center_l_geom[2]))),
-            (f"Face +Z", Gf.Vec3f(0,0,1), Gf.Vec3f(float(center_l_geom[0]), float(center_l_geom[1]), float(max_l_geom[2]))),
-            (f"Face -Z", Gf.Vec3f(0,0,-1),Gf.Vec3f(float(center_l_geom[0]), float(center_l_geom[1]), float(min_l_geom[2])))
-        ]
+            face_counts = mesh.GetFaceVertexCountsAttr().Get()
+            face_indices = mesh.GetFaceVertexIndicesAttr().Get()
+            if not face_counts or not face_indices:
+                print("ERROR: Mesh senza indici faccia.")
+                return None
 
-        # Ottieni la trasformazione MONDIALE di geom_prim_for_calc
-        # Questa matrice include tutte le trasformazioni (scale, rot, trans) di geom_prim_for_calc e dei suoi parenti.
-        W_geom_to_world = omni.usd.get_world_transform_matrix(geom_prim_for_calc)
-        if self.debug_pose_calculation:
-            print(f"  World transform matrix of geom_prim '{geom_prim_for_calc.GetPath()}':\n{W_geom_to_world}")
+            up_world = Gf.Vec3f(0, 0, 1)
+            best = {"dot": -2.0, "centroid": None, "normal": None}
+
+            idx = 0
+            for n_v in face_counts:
+                v_idx = face_indices[idx: idx + n_v]
+                idx += n_v
+                if len(v_idx) < 3:
+                    continue
+                v0, v1, v2 = (pts_world[v_idx[0]],
+                            pts_world[v_idx[1]],
+                            pts_world[v_idx[2]])
+                n = Gf.Cross(v1 - v0, v2 - v0)
+                if n.GetLengthSq() < 1e-12:
+                    continue
+                n.Normalize()
+                dot = Gf.Dot(n, up_world)
+                if dot <= 0:
+                    continue
+                centroid = Gf.Vec3f(sum((pts_world[i] for i in v_idx),
+                                        Gf.Vec3f(0)).GetArray() / len(v_idx))
+                if dot > best["dot"]:
+                    best = {"dot": dot, "centroid": centroid, "normal": n}
+
+            if best["centroid"] is None:
+                print("WARN: Nessuna faccia con normale +Z in Mesh; uso bounding-box.")
+                return super()._get_target_object_grasp_pose(current_target_prim_path)  # type: ignore
+
+            surface_p_w = best["centroid"]
+            surface_n_w = best["normal"]
+
+        # ────────────────────────────────
+        # 2b. Caso Cube  → faccia superiore implicita
+        # ────────────────────────────────
+        elif cube_prim:
+            cube = UsdGeom.Cube(cube_prim)
+            size = cube.GetSizeAttr().Get() or 1.0  # default: 1 m
+            world_Xf = omni.usd.get_world_transform_matrix(cube_prim)
+
+            # Centro della faccia +Z nel local-space del cubo: (0,0,+size/2)
+            local_top_center = Gf.Vec3d(0, 0, size * 0.5)
+            surface_p_w = Gf.Vec3f(world_Xf.Transform(local_top_center))
+
+            # Normale = asse +Z trasformato dal world_Xf
+            surface_n_w = Gf.Vec3f(world_Xf.TransformDir(Gf.Vec3d(0, 0, 1))).GetNormalized()
+
+        # ────────────────────────────────
+        # 2c. Nessuna geometria → fallback
+        # ────────────────────────────────
+        else:
+            return super()._get_target_object_grasp_pose(current_target_prim_path)  # type: ignore
+
+        # ────────────────────────────────
+        # 3. Orientazione e origine del cono
+        # ────────────────────────────────
+        rot = Gf.Rotation(Gf.Vec3d(0, 0, 1), Gf.Vec3d(surface_n_w))
+        q = rot.GetQuat().GetNormalized()
+        cone_orientation = Gf.Quatf(float(q.GetReal()),
+                                    Gf.Vec3f(float(q.GetImaginary()[0]),
+                                            float(q.GetImaginary()[1]),
+                                            float(q.GetImaginary()[2])))
+
+        cone_origin = surface_p_w + surface_n_w * self.grasp_offset_from_top
+        return cone_origin, cone_orientation, surface_n_w
 
 
-        world_up_vector = Gf.Vec3f(0,0,1)
-        best_face_data = {
-            "surface_point_world": None,
-            "surface_normal_world": None,
-            "dot_world_z": -2.0,          
-            "name": "None"
-        }
 
-        if self.debug_pose_calculation: print("  Evaluating faces for grasp (all transformations applied):")
-        for face_name, n_geom_local, off_geom_local in faces_in_geom_local_frame:
-            # n_geom_local e off_geom_local sono nel frame locale (untransformed) di geom_prim_for_calc
-            # Trasformali direttamente nel mondo usando W_geom_to_world
-            
-            # W_geom_to_world.TransformDir non applica la traslazione ed è corretto per le normali.
-            # È importante che W_geom_to_world includa anche lo scale, se presente.
-            n_world_d = W_geom_to_world.TransformDir(Gf.Vec3d(n_geom_local)).GetNormalized()
-            n_world = Gf.Vec3f(n_world_d) # Già normalizzato
-            
-            # W_geom_to_world.Transform applica tutta la matrice, corretto per i punti/offset.
-            off_world_d = W_geom_to_world.Transform(Gf.Vec3d(off_geom_local))
-            off_world = Gf.Vec3f(off_world_d)
-            
-            dotz = Gf.Dot(n_world, world_up_vector)
 
-            if self.debug_pose_calculation:
-                print(f"    Face '{face_name}': n_geom_local={n_geom_local}, off_geom_local={off_geom_local}")
-                print(f"      n_world={n_world}, off_world={off_world}, dotZ_world={dotz:.3f}")
-            
-            if dotz > best_face_data["dot_world_z"]:
-                best_face_data["dot_world_z"] = dotz
-                best_face_data["surface_point_world"] = off_world
-                best_face_data["surface_normal_world"] = n_world
-                best_face_data["name"] = face_name
-        
-        if best_face_data["surface_point_world"] is None:
-            print(f"WARN: No valid face found for '{current_target_prim_path}'. Cannot calculate grasp pose.")
+
+
+
+
+
+
+
+    
+
+
+    
+
+
+
+    
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    #  helpers geometrici
+    # ──────────────────────────────────────────────────────────────────────────────
+    def _point_in_triangle(self,p: Gf.Vec3f, a: Gf.Vec3f, b: Gf.Vec3f, c: Gf.Vec3f) -> bool:
+        """test barycentrico 2D/3D (funziona anche in 3D)"""
+        v0, v1, v2 = c - a, b - a, p - a
+        dot00 = Gf.Dot(v0, v0); dot01 = Gf.Dot(v0, v1); dot02 = Gf.Dot(v0, v2)
+        dot11 = Gf.Dot(v1, v1); dot12 = Gf.Dot(v1, v2)
+        denom = dot00 * dot11 - dot01 * dot01
+        if abs(denom) < 1e-12:
+            return False
+        invd = 1.0 / denom
+        u = (dot11 * dot02 - dot01 * dot12) * invd
+        v = (dot00 * dot12 - dot01 * dot02) * invd
+        return (u >= 0.0) and (v >= 0.0) and (u + v <= 1.0)
+
+
+    def _ray_intersect_tri(self,o: Gf.Vec3f, dir: Gf.Vec3f,
+                        a: Gf.Vec3f, b: Gf.Vec3f, c: Gf.Vec3f, n: Gf.Vec3f):
+        """intersezione raggio–triangolo; ritorna (t, p) o None"""
+        dn = Gf.Dot(dir, n)
+        if abs(dn) < 1e-8:        # quasi parallelo
             return None
+        t = Gf.Dot(a - o, n) / dn
+        if t < 0:
+            return None
+        p = o + dir * t
+        if self._point_in_triangle(p, a, b, c):
+            return t, p
+        return None
 
-        surface_point_world = best_face_data["surface_point_world"]
-        surface_normal_world = best_face_data["surface_normal_world"]
 
-        if self.debug_pose_calculation:
-            print(f"  Chosen Face: '{best_face_data['name']}' (dotZ_world={best_face_data['dot_world_z']:.3f})")
-            print(f"  Calculated Surface Point (S_world): {surface_point_world}")
-            print(f"  Calculated Surface Normal (N_world): {surface_normal_world}")
+    # ──────────────────────────────────────────────────────────────────────────────
+    #  FUNZIONE PRINCIPALE
+    # ──────────────────────────────────────────────────────────────────────────────
+    def sample_grasp_grid(
+        self,
+        prim_path: str,
+        grid_step_m: float = 0.05,
+        max_tilt_deg: float = 65.0,
+        stage_time: Usd.TimeCode = Usd.TimeCode.Default(),
+    ) -> List[Tuple[Gf.Vec3f, Gf.Quatf, Gf.Vec3f]]:
+        """
+        Griglia XY → proiezione verticale → un solo punto per nodo.
+        Evita sovracampionamenti sugli spigoli e copre tutta la superficie.
+        """
+        _UP = Gf.Vec3f(0, 0, 1)
+        stage = self._stage
+        if not stage:
+            print("ERROR: Stage non disponibile.")
+            return []
 
+        root = stage.GetPrimAtPath(prim_path)
+        if not root or not root.IsValid():
+            print(f"ERROR: Prim '{prim_path}' non valido.")
+            return []
 
-        # Orientamento del cono: l'asse Z locale del cono si allinea con surface_normal_world
-        cone_axis_local_d = Gf.Vec3d(0,0,1) 
-        target_normal_world_d = Gf.Vec3d(surface_normal_world)
-        
-        rotation_to_align_cone_d = Gf.Rotation(cone_axis_local_d, target_normal_world_d)
-        # Gestione del caso in cui le normali sono opposte (angolo di 180 gradi)
-        dot_product_cone_align = Gf.Dot(cone_axis_local_d, target_normal_world_d)
-        if dot_product_cone_align < -0.99999: # Quasi -1
-            # Scegli un asse di rotazione ortogonale a cone_axis_local_d
-            ortho_axis = Gf.Cross(cone_axis_local_d, Gf.Vec3d.XAxis())
-            if ortho_axis.GetLengthSq() < 1e-6: # Se cone_axis_local_d è parallelo a XAxis, prova YAxis
-                ortho_axis = Gf.Cross(cone_axis_local_d, Gf.Vec3d.YAxis())
-            
-            if ortho_axis.GetLengthSq() > 1e-6: # Assicurati che l'asse sia valido
-                rotation_to_align_cone_d = Gf.Rotation(ortho_axis.GetNormalized(), 180.0)
-                if self.debug_pose_calculation: print(f"  Align Cone: Normals opposed (dot={dot_product_cone_align:.3f}). Using 180 deg rotation around {ortho_axis.GetNormalized()}.")
-            else: # Caso molto improbabile se cone_axis_local_d è (0,0,1)
-                 if self.debug_pose_calculation: print(f"  WARN: Could not determine 180 deg rotation axis for cone alignment, normals opposed but orthogonal axis is zero. Using identity rotation for cone.")
-                 rotation_to_align_cone_d = Gf.Rotation() # Identità
-        
-        cone_orientation_world_d = rotation_to_align_cone_d.GetQuat().GetNormalized()
-        cone_orientation_world_qf = Gf.Quatf(
-            float(cone_orientation_world_d.GetReal()), 
-            Gf.Vec3f(float(cone_orientation_world_d.GetImaginary()[0]),
-                     float(cone_orientation_world_d.GetImaginary()[1]),
-                     float(cone_orientation_world_d.GetImaginary()[2]))
-        )
-        
-        # Origine del cono: la sua base (z=0 locale) è su surface_point_world + un offset lungo la normale
-        cone_origin_world = surface_point_world + surface_normal_world * (self.grasp_offset_from_top) 
-        
-        if self.debug_pose_calculation:
-            print(f"  Calculated Cone Origin (O_cone_world): {cone_origin_world}")
-            print(f"  Calculated Cone Orientation (Q_cone_world): W={cone_orientation_world_qf.GetReal():.4f}, xyz={cone_orientation_world_qf.GetImaginary()}")
-            print(f"--- End Debug _get_target_object_grasp_pose (path: {current_target_prim_path}) ---")
+        up_dot_min = math.cos(math.radians(max_tilt_deg))
 
-        return cone_origin_world, cone_orientation_world_qf, surface_normal_world
+        # ------------------------------------------------------------------
+        # 1. estrai tutti i triangoli (Mesh + Cube) + normali
+        # ------------------------------------------------------------------
+        tris = []   # (a,b,c,n)
+        vmin = Gf.Vec3f(float("inf"))
+        vmax = Gf.Vec3f(float("-inf"))
+
+        stack = [root]
+        while stack:
+            prim = stack.pop()
+            xf_world = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(stage_time)
+
+            # --------- Mesh -----------------------------------------------------
+            if prim.IsA(UsdGeom.Mesh):
+                mesh = UsdGeom.Mesh(prim)
+                pts_l = mesh.GetPointsAttr().Get(stage_time) or []
+                if not pts_l:
+                    stack.extend(prim.GetChildren()); continue
+                pts_w = [Gf.Vec3f(xf_world.Transform(Gf.Vec3d(p))) for p in pts_l]
+
+                f_cnt = mesh.GetFaceVertexCountsAttr().Get() or []
+                f_idx = mesh.GetFaceVertexIndicesAttr().Get() or []
+                k = 0
+                for nv in f_cnt:
+                    ids = f_idx[k:k + nv]; k += nv
+                    if len(ids) < 3:   continue
+                    v0, v1, v2 = (pts_w[ids[0]], pts_w[ids[1]], pts_w[ids[2]])
+                    n = Gf.Cross(v1 - v0, v2 - v0)
+                    if n.GetLength() < 1e-8:   continue
+                    n.Normalize()
+                    if Gf.Dot(n, _UP) < up_dot_min:   continue
+                    for i in range(1, nv - 1):
+                        a, b, c = v0, pts_w[ids[i]], pts_w[ids[i + 1]]
+                        tris.append((a, b, c, n))
+                        for v in (a, b):
+                            vmin = Gf.Vec3f(min(vmin[0], v[0]),
+                                            min(vmin[1], v[1]),
+                                            min(vmin[2], v[2]))
+                            vmax = Gf.Vec3f(max(vmax[0], v[0]),
+                                            max(vmax[1], v[1]),
+                                            max(vmax[2], v[2]))
+
+            # --------- Cube -----------------------------------------------------
+            elif prim.IsA(UsdGeom.Cube):
+                cube = UsdGeom.Cube(prim)
+                s    = cube.GetSizeAttr().Get(stage_time) or 1.0
+                h    = s * 0.5
+                vL   = [Gf.Vec3d(-h,-h,-h), Gf.Vec3d(h,-h,-h), Gf.Vec3d(h,h,-h), Gf.Vec3d(-h,h,-h),
+                        Gf.Vec3d(-h,-h,h),  Gf.Vec3d(h,-h,h),  Gf.Vec3d(h,h,h),  Gf.Vec3d(-h,h,h)]
+                vW   = [Gf.Vec3f(xf_world.Transform(p)) for p in vL]
+                it   = xf_world.GetInverse().GetTranspose()
+                face_vidx = [[4,5,6,7],[0,1,2,3],[1,5,6,2],[0,4,7,3],[3,2,6,7],[0,1,5,4]]
+                local_ns  = [Gf.Vec3d(0,0,1),Gf.Vec3d(0,0,-1),Gf.Vec3d(1,0,0),
+                            Gf.Vec3d(-1,0,0),Gf.Vec3d(0,1,0),Gf.Vec3d(0,-1,0)]
+                for vids, nloc in zip(face_vidx, local_ns):
+                    n = Gf.Vec3f(it.TransformDir(nloc)).GetNormalized()
+                    if Gf.Dot(n, _UP) < up_dot_min:  continue
+                    quads = [(vids[0],vids[1],vids[2]),(vids[0],vids[2],vids[3])]
+                    for i0,i1,i2 in quads:
+                        a,b,c = vW[i0], vW[i1], vW[i2]
+                        tris.append((a,b,c,n))
+                        for v in (a,b):
+                            vmin = Gf.Vec3f(min(vmin[0], v[0]), min(vmin[1], v[1]), min(vmin[2], v[2]))
+                            vmax = Gf.Vec3f(max(vmax[0], v[0]), max(vmax[1], v[1]), max(vmax[2], v[2]))
+
+            stack.extend(prim.GetChildren())
+
+        if not tris:
+            print(f"WARN: nessuna faccia entro {max_tilt_deg}°.")
+            return []
+
+        # ------------------------------------------------------------------
+        # 2. griglia su XY e intersezione verticale
+        # ------------------------------------------------------------------
+        step = grid_step_m
+        min_x, max_x = vmin[0] - step*0.5, vmax[0] + step*0.5
+        min_y, max_y = vmin[1] - step*0.5, vmax[1] + step*0.5
+        cols = int(math.ceil((max_x - min_x) / step))
+        rows = int(math.ceil((max_y - min_y) / step))
+
+        dir_down = Gf.Vec3f(0, 0, -1)
+        z_high   = vmax[2] + step   # punto di partenza raggi
+
+        poses: List[Tuple[Gf.Vec3f, Gf.Quatf, Gf.Vec3f]] = []
+
+        for ix in range(cols + 1):
+            x = min_x + ix * step
+            for iy in range(rows + 1):
+                y = min_y + iy * step
+                o = Gf.Vec3f(x, y, z_high)
+
+                best_t, best_hit, best_n = None, None, None
+                for a, b, c, n in tris:
+                    hit = self._ray_intersect_tri(o, dir_down, a, b, c, n)
+                    if hit is None:  continue
+                    t, p = hit
+                    if (best_t is None) or (t < best_t):
+                        best_t, best_hit, best_n = t, p, n
+
+                if best_hit is None:
+                    continue  # il nodo di griglia cade fuori dall'oggetto
+
+                # orientazione: asse Z → normale
+                rot = Gf.Rotation(Gf.Vec3d(0, 0, 1), Gf.Vec3d(best_n))
+                qd  = rot.GetQuat().GetNormalized()
+                q   = Gf.Quatf(float(qd.GetReal()),
+                            Gf.Vec3f(float(qd.GetImaginary()[0]),
+                                        float(qd.GetImaginary()[1]),
+                                        float(qd.GetImaginary()[2])))
+
+                origin = best_hit + best_n * self.grasp_offset_from_top
+                poses.append((origin, q, best_n))
+
+        return poses
+
 
 
 
@@ -479,7 +633,7 @@ class SurfaceGripperDirectScript:
              self.cone_usd_prim_created = False
              return
 
-        grasp_pose_data = self._get_target_object_grasp_pose(self.object_to_grasp_path)
+        grasp_pose_data = self.grasp_pone_cone#self._get_target_object_grasp_pose(self.object_to_grasp_path)
         if not grasp_pose_data:
             print(f"ERROR (_create_cone_usd_prim): Could not calculate grasp pose for '{self.object_to_grasp_path}'. Skipping.")
             self.cone_usd_prim_created = False
@@ -995,8 +1149,9 @@ class SurfaceGripperDirectScript:
     def is_task_complete(self):
         return self.task_complete
 
-    def run(self):
+    def run(self,position):
         print("SurfaceGripperDirectScript.run() called. Initializing states...")
+        self.grasp_pone_cone=position
         self._sim_step = 0
         self.gripper_close_command_sent = False
         self.cone_usd_prim_created = False

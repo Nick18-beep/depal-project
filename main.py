@@ -59,6 +59,7 @@ def main_simulation():
         import src.container_pallet_creator as container_pallet_creator_module
         import src.grip as grip
         
+
         from depal_utils import scene_setup_utils 
         from depal_utils import replicator_utils
         from depal_utils import stage_utils
@@ -257,21 +258,8 @@ def main_simulation():
             stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
             
             
-
             
-
-
-
-
-
-
-         
-                
-
-
-
-
-
+        
 
 
 
@@ -283,6 +271,10 @@ def main_simulation():
                 for i, box_prim_path in enumerate(spawned_box_prim_paths):
                     print(f"\n  Processing grip for box {i+1}/{len(spawned_box_prim_paths)}: {box_prim_path}")
                     box_path="/World/SpawnedBasicBoxes/BasicBox_"+str(i)
+
+
+                    
+
 
                     print("\nCreating new SurfaceGripperDirectScript instance...")
                     gripper_script_runner_instance = grip.SurfaceGripperDirectScript(
@@ -308,75 +300,96 @@ def main_simulation():
                         simulation_app=simulation_app
                     )
 
+
                 
+                    cone_positions=gripper_script_runner_instance.sample_grasp_grid(box_path)
 
-                    print("Running simulation script...")
-                    gripper_script_runner_instance.run()
-                    while not gripper_script_runner_instance.is_task_complete():
-                        simulation_app.update()
-                    
+                    for position in cone_positions:
 
-                   
-                    script_dir = os.path.dirname(os.path.abspath(__file__))
-                    relative_path_to_json = os.path.join( "output", "img1", "left","camera_params","camera_params_0000.json")
-                    json_file_path = os.path.abspath(os.path.join(script_dir, relative_path_to_json))
-                    
-                    print(f"Percorso calcolato per il file JSON: {json_file_path}") # Stampa di debug
-                    
-                    K_matrix = generate_K_matrix.generate_k_matrix(json_file_path)
-                    print(K_matrix)
-
-                  
-
-                    print("posizione oggetto, ",gripper_script_runner_instance.initial_cone_placement_position_world)
-
-                    
-                    
-                    
-
-
-                    
-                     
-                    print("altezza ",cam_pos[2])
+                        print(f"\n  Processing grip for box {i+1}/{len(spawned_box_prim_paths)}: {box_prim_path}")
+                        box_path="/World/SpawnedBasicBoxes/BasicBox_"+str(i)
 
 
 
-                    output_pick = os.path.join(current_script_dir, paths_cfg['output_replicator_dir_base'], f"img{img_idx}","left","pick")
-                    os.makedirs(output_pick, exist_ok=True)
-                  
-                    
-                    generate_image_pick.project_circle_topdown(
-                        radius_m          = config_cone_radius,               # raggio in metri
-                        center_world_m= gripper_script_runner_instance.initial_cone_placement_position_world, # centro 3-D  (X,Y,Z)
-                        orientation_wxyz  = gripper_script_runner_instance.initial_cone_orientation, # orientamento
-                        camera_height_m   = cam_pos[2] ,
-                        K_matrix_3x3      = K_matrix,
-                        image_width       = 1280,
-                        image_height      = 720,
-                        output_image_path = output_pick+str("/pick_object.png"),
-                        roll_deg          = 90.0,               # sensore verticale
-                        circle_color      = gripper_script_runner_instance.grip_status_code,    # bianco
+
+                        print("\nCreating new SurfaceGripperDirectScript instance...")
+                        gripper_script_runner_instance = grip.SurfaceGripperDirectScript(
+                            
+                            target_object_prim_path=box_path,
+                            grasp_offset_from_top=config_grasp_offset,
+                            initial_box_prim_path=config_initial_box_path,
+                            box_mass=config_box_mass,
+                            absolute_grip_force=config_absolute_grip_force,
+                            grip_force_multiplier=config_grip_force_multiplier,
+                            target_lift_height=config_target_lift_height,
+                            target_horizontal_position=config_target_horizontal_position,
+                            z_correction_factor=config_z_correction_factor,
+                            max_z_correction_speed_factor=config_max_z_correction_speed_factor,
+                            cone_height=config_cone_height,
+                            cone_radius=config_cone_radius,
+                            lift_speed_vertical=config_lift_speed_vertical,
+                            move_speed_horizontal=config_move_speed_horizontal,
+                            steps_for_cube_to_settle=config_steps_for_cube_to_settle,
+                            steps_grace_period_after_settle=config_steps_grace_period_after_settle,
+                            steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
+                            steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh,
+                            simulation_app=simulation_app
+                        )
+
                         
-                    )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                        print("Running simulation script...")
+                        gripper_script_runner_instance.run(position)
+                        while not gripper_script_runner_instance.is_task_complete():
+                            simulation_app.update()
+                        
 
                     
-                    stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+                        script_dir = os.path.dirname(os.path.abspath(__file__))
+                        relative_path_to_json = os.path.join( "output", "img1", "left","camera_params","camera_params_0000.json")
+                        json_file_path = os.path.abspath(os.path.join(script_dir, relative_path_to_json))
+                        
+                        print(f"Percorso calcolato per il file JSON: {json_file_path}") # Stampa di debug
+                        
+                        K_matrix = generate_K_matrix.generate_k_matrix(json_file_path)
+                        print(K_matrix)
+
+                    
+
+                        print("posizione oggetto, ",gripper_script_runner_instance.initial_cone_placement_position_world)
+
+                        
+                        
+                        
+
+
+                        
+                        
+                        print("altezza ",cam_pos[2])
+
+
+
+                        output_pick = os.path.join(current_script_dir, paths_cfg['output_replicator_dir_base'], f"img{img_idx}","left","pick")
+                        os.makedirs(output_pick, exist_ok=True)
+                    
+                        
+                        generate_image_pick.project_circle_topdown(
+                            radius_m          = config_cone_radius,               # raggio in metri
+                            center_world_m= gripper_script_runner_instance.initial_cone_placement_position_world, # centro 3-D  (X,Y,Z)
+                            orientation_wxyz  = gripper_script_runner_instance.initial_cone_orientation, # orientamento
+                            camera_height_m   = cam_pos[2] ,
+                            K_matrix_3x3      = K_matrix,
+                            image_width       = 1280,
+                            image_height      = 720,
+                            output_image_path = output_pick+str("/pick_object.png"),
+                            roll_deg          = 90.0,               # sensore verticale
+                            circle_color      = gripper_script_runner_instance.grip_status_code,    # bianco
+                            
+                        )
+
+
+                        stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+
+
 
             else:
                 print("box insufficienti")
