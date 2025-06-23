@@ -119,7 +119,7 @@ def spawn_objects(
     created_object_root_prims = []
 
     for i in range(num_actual_objects_to_spawn):
-        object_instance_name_suffix = f"{random.randint(10000, 99999)}_{i}"
+        object_instance_name_suffix = f"_{i}"
         object_root_prim_path = f"{parent_path}/SpawnedObject_{object_instance_name_suffix}"
 
         pos_offset_x = random.uniform(xy_jitter_range[0], xy_jitter_range[1])

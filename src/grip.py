@@ -32,7 +32,7 @@ class SurfaceGripperDirectScript:
         self,
         target_object_prim_path: Optional[str] = None,
         grasp_offset_from_top: float = 0.000, 
-        gripper_depth_offset: float = 0.005, 
+        gripper_depth_offset: float = 0.005, #0.005
         initial_box_prim_path: str = "/World/Box", 
         box_mass: float = 0.05, 
         absolute_grip_force: Optional[float] = None,
@@ -323,7 +323,7 @@ class SurfaceGripperDirectScript:
     def sample_grasp_grid(
         self,
         prim_path: str,
-        grid_step_m: float = 0.05,
+        grid_step_m: float = 0.1,
         max_tilt_deg: float = 65.0,
         stage_time: Usd.TimeCode = Usd.TimeCode.Default(),
     ) -> List[Tuple[Gf.Vec3f, Gf.Quatf, Gf.Vec3f]]:
@@ -673,8 +673,7 @@ class SurfaceGripperDirectScript:
         api = PhysxSchema.PhysxContactReportAPI.Apply(cone_prim_usd)
         api.CreateThresholdAttr().Set(0.0)  
 
-       
-                   
+            
 
 
         if rigid_api.GetPrim().IsValid():
@@ -706,7 +705,7 @@ class SurfaceGripperDirectScript:
         sg_rot_img_gripper = sg_rot_q_f.GetImaginary() 
         sgp.offset.r.x, sgp.offset.r.y, sgp.offset.r.z = sg_rot_img_gripper[0], sg_rot_img_gripper[1], sg_rot_img_gripper[2]
        
-        sgp.gripThreshold = 0.01 
+        sgp.gripThreshold = 0.02 #0.01 
 
         mass_of_object_to_grip = self.box_mass 
         if self.target_srp_handle and self.target_srp_handle.is_valid() and self._stage:
@@ -730,7 +729,7 @@ class SurfaceGripperDirectScript:
             sgp.forceLimit = min_force_to_hold * self.grip_force_multiplier
             print(f"Using MULTIPLIER ({self.grip_force_multiplier}x) on F_grav ({min_force_to_hold:.2f}N). Grip F_limit: {sgp.forceLimit:.2f} N")
 
-        sgp.torqueLimit = 5.0 #100.0
+        sgp.torqueLimit = 10.0 #100.0
         sgp.stiffness = 300   #1.0e4
         sgp.damping = 50     #1.0e3
         sgp.retryClose = True   
@@ -757,6 +756,13 @@ class SurfaceGripperDirectScript:
         self._sim_step += 1
         time_code_default = Usd.TimeCode.Default()
 
+
+      
+
+
+        
+     
+
         if ( self.task_complete ):
             return 
 
@@ -774,6 +780,7 @@ class SurfaceGripperDirectScript:
             print(f"SIM_STEP {self._sim_step}: TIMEOUT - Gripper did not close after {500} additional steps (total steps: {self._sim_step}, init_attempt_step: {self.steps_for_sg_init_and_grip_attempt}). Status: 1.")        
             if(self.grip_status_code ==0):
                 self.grip_status_code = 1
+                
             #self.movement_phase = "done" # Stop any potential future movement teso un attimo
             self.task_complete = True
             if self.surface_gripper: # Attempt to open it to reset state
@@ -819,6 +826,16 @@ class SurfaceGripperDirectScript:
                         collisions_this_step += 1
                         #print(f"[GRIPPER→BOX]  cone <-->  {path0}")
 
+                    # Rendi l’ordine indifferente: gripper è sempre p0, box sempre p1
+                    if path0 == "/GripperCone" and str(path1).startswith("/World/GeneratedYCBObjects/SpawnedObject"):
+                        collisions_this_step += 1
+                        #print(f"[GRIPPER→BOX] cone  <-->  {path1}")
+                    elif path1 == "/GripperCone" and str(path0).startswith("/World/GeneratedYCBObjects/SpawnedObject"):
+                        collisions_this_step += 1
+                        #print(f"[GRIPPER→BOX]  cone <-->  {path0}")
+
+                        
+
 
                 # Aggiorna il codice di stato
                 if collisions_this_step > 1:
@@ -826,6 +843,7 @@ class SurfaceGripperDirectScript:
                     self.grip_status_code = -1
                     self.movement_phase = "done" # Transita alla fase di rilascio/termine testo un attimo
                     self.task_complete = True
+                    
                     print("HO 2 COLLISSIONI STACCO ")
                     
                     
@@ -1038,6 +1056,7 @@ class SurfaceGripperDirectScript:
                 print(f"SIM_STEP {self._sim_step} (Movement - Phase {self.movement_phase}): GRIP LOST! Status: 2.")
                 if(self.grip_status_code ==0):
                     self.grip_status_code = 2
+                    
                 #self.movement_phase = "releasing" # Transita alla fase di rilascio/termine testo un attimo
                 self.task_complete = True
                 if self.cone_prim_handle and self.cone_prim_handle.is_valid():
@@ -1140,6 +1159,7 @@ class SurfaceGripperDirectScript:
             if self._sim_step > self.steps_before_initial_lift_phase + 300: 
                 if(self.grip_status_code ==0):
                     self.grip_status_code = 3
+                    
                 self.task_complete = True
                 if self._sim_step % 240 == 0 : 
                     sg_status = "N/A"

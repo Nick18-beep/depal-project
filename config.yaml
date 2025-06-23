@@ -3,7 +3,7 @@
 simulation_setup:
   headless: False
   # renderer: "PathTracing" 
-  num_images_to_generate: 10
+  num_images_to_generate: 1
   simulation_updates_after_setup: 200 
 
 paths:
@@ -111,13 +111,13 @@ asset_spawner:
     prim_name_instance_base: "ImportedContainer"
 
 box_spawner: 
-  enable: True 
-  num_to_spawn_range: [10,15]
+  enable: False 
+  num_to_spawn_range: [2,2]
   mass_kg: 0.02
   base_z_offset: 1.2
   z_jitter: 0.7      
   xy_jitter_range: [-0.3, 0.3] 
-  procedural_vs_asset_probability: 1  #probabilità di creare box casuali al posto di asset 0.75 default
+  procedural_vs_asset_probability: 1.0  #probabilità di creare box casuali al posto di asset 0.75 default
   asset_material_override_probability: 0.0 #probabilità di assegnare texture/materiali casuali agli asset caricati 0 defaul
   asset_usd_paths: 
   - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/ArchVis/Industrial/Containers/Cardboard/Cardbox_A2.usd"
@@ -132,7 +132,7 @@ box_spawner:
   #stl
 
 object_creator_ycb: 
-  enable: False 
+  enable: True 
   asset_list:
     - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned/002_master_chef_can.usd"
     - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned/003_cracker_box.usd"
@@ -153,15 +153,15 @@ object_creator_ycb:
     - "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned/051_large_clamp.usd"
 
   materials_folder_path: "/World/Looks" 
-  num_to_spawn_range: [30,35]
+  num_to_spawn_range: [2,3]
   spawn_parent_path: "/World/GeneratedYCBObjects"
   base_pos_xy: [0.0, 0.0] 
   spawn_z_offset: 1.0     
   spawn_z_jitter: 0.2
   spawn_xy_jitter_range: [-0.3, 0.3]
-  spawn_scale_min: 0.8
-  spawn_scale_max: 1.2
-  spawn_mass: 0.2
+  spawn_scale_min: 3 #0.8
+  spawn_scale_max: 4 #1.2
+  spawn_mass: 0.02
   semantic_label: "ycb_object" 
   asset_material_override_probability: 0.75
 
