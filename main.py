@@ -198,7 +198,7 @@ def main_simulation():
 
             config_initial_box_path = "/Box"
             config_box_mass = 0.02
-            config_absolute_grip_force = 0.6 # Assicurati sia float 5000.0  0.6
+            config_absolute_grip_force = 0.65 # Assicurati sia float 5000.0  0.6
             config_grip_force_multiplier = 1.0 #500.0
             config_lift_speed_vertical = 2 # Modificato per un movimento più lento/controllato
 
@@ -393,6 +393,9 @@ def main_simulation():
                             print(f"      WARNING: initial_cone_placement_position_world is None for attempt {pos_idx+1}, box {i+1}. Skipping projection data collection.")
                         
                         stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd") # Se necessario dopo ogni run()
+                        for _ in range (50):
+                            simulation_app.update()
+
 
                 # --- FINE RACCOLTA DATI PER TUTTI I BOX ---
                 simulation_app.update()
@@ -441,7 +444,7 @@ def main_simulation():
 
  
 
-
+            
 
 
 

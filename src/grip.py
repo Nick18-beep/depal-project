@@ -48,7 +48,7 @@ class SurfaceGripperDirectScript:
         steps_for_cube_to_settle: int = 60,
         steps_grace_period_after_settle: int = 30,
         steps_wait_before_grip_attempt: int = 120,
-        steps_wait_after_cone_usd_creation: int = 30,#5
+        steps_wait_after_cone_usd_creation: int = 5,#5
         steps_wait_after_grip_refresh: int = 40,
         debug_pose_calculation: bool = False,
         simulation_app = None
@@ -705,7 +705,7 @@ class SurfaceGripperDirectScript:
         sg_rot_img_gripper = sg_rot_q_f.GetImaginary() 
         sgp.offset.r.x, sgp.offset.r.y, sgp.offset.r.z = sg_rot_img_gripper[0], sg_rot_img_gripper[1], sg_rot_img_gripper[2]
        
-        sgp.gripThreshold = 0.02 #0.01 
+        sgp.gripThreshold = 0.05 #0.01 
 
         mass_of_object_to_grip = self.box_mass 
         if self.target_srp_handle and self.target_srp_handle.is_valid() and self._stage:
@@ -729,7 +729,7 @@ class SurfaceGripperDirectScript:
             sgp.forceLimit = min_force_to_hold * self.grip_force_multiplier
             print(f"Using MULTIPLIER ({self.grip_force_multiplier}x) on F_grav ({min_force_to_hold:.2f}N). Grip F_limit: {sgp.forceLimit:.2f} N")
 
-        sgp.torqueLimit = 10.0 #100.0
+        sgp.torqueLimit = 15.0 #100.0
         sgp.stiffness = 300   #1.0e4
         sgp.damping = 50     #1.0e3
         sgp.retryClose = True   
