@@ -448,7 +448,7 @@ def main_simulation():
  
 
             
-
+            from omni.isaac.core import World
             USA_PINZA = True
 
             if USA_PINZA:
@@ -461,8 +461,9 @@ def main_simulation():
                     selected = spawned_object_prim_paths
                     
 
-
+                #stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
                 for i, box_prim_path_original in enumerate(selected):
+                                
                     print(f"\n  Processing data collection for box {i+1}")
                     box_path=None
                     if box_spawn_cfg['enable']:
@@ -474,17 +475,17 @@ def main_simulation():
                     print(f"    Targeting box prim path: {box_path}")
 
                     target_prim_path = box_path
-                    stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
                     
-                    robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
-                    print("robot creato")
-                    
-                    
-                    for _ in range(30):
-                        simulation_app.update()
-                    robot.initialize()
-                    for _ in range(30):
-                        simulation_app.update()
+                    if i==0:
+                        robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
+                        print("robot creato")
+                        
+                        
+                        for _ in range(30):
+                            simulation_app.update()
+                        robot.initialize()
+                        for _ in range(30):
+                            simulation_app.update()
                     
                     poses = pinza.generate_grasp_poses(target_prim)
                     if not poses:
@@ -527,7 +528,9 @@ def main_simulation():
                             simulation_app.update()
                             fsm.step()
                         stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+                        
                         robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
+                        
                 
                 print("Simulazione completata.")  
 
