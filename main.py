@@ -474,9 +474,11 @@ def main_simulation():
                     print(f"    Targeting box prim path: {box_path}")
 
                     target_prim_path = box_path
+                    stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
+                    
                     robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
                     print("robot creato")
-
+                    
                     
                     for _ in range(30):
                         simulation_app.update()
@@ -516,7 +518,7 @@ def main_simulation():
                     
 
                     obb_info = pinza._get_obb_info(target_prim)
-                    fsm = pinza.GraspingFSM( robot, poses, obb_info )# Se necessario dopo ogni run()
+                    fsm = pinza.GraspingFSM( robot, poses, obb_info,stage_utils )# Se necessario dopo ogni run()
                         
                     while simulation_app.is_running() and not fsm.is_finished():
                         simulation_app.update()

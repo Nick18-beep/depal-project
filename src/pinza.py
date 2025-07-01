@@ -15,24 +15,24 @@ from enum import Enum, auto
 # ------------------------------------------------------------------------------
 
 
-NUM_CANDIDATE_POSES     = 10
+NUM_CANDIDATE_POSES     = 15
 GRIPPER_APPROACH_OFFSET = 1.5
-MIN_SAFE_HEIGHT_Z       = 0.3
+MIN_SAFE_HEIGHT_Z       = 0.4
 PAUSE_DURATION_SEC      = 0.25
 
 
-APPROACH_SPEED          = 0.8
-STOP_BEFORE_DIST        = 0.2
+APPROACH_SPEED          = 2
+STOP_BEFORE_DIST        = 0.25
 
 
 GRIPPER_OPEN_POS        = 0.0
-GRIPPER_CLOSED_POS      = 0.70
+GRIPPER_CLOSED_POS      = 0.80
 GRIPPER_TOLERANCE       = 0.02
 GRIP_TIMEOUT_SEC        = 2.0
 
 
-LIFT_HEIGHT_Z           = 0.5
-LIFT_SPEED              = 0.8
+LIFT_HEIGHT_Z           = 1
+LIFT_SPEED              = 2
 
 
 SCALE_FACTOR_GRIP       = 3.5
@@ -63,7 +63,8 @@ def setup_scene( target_prim_path,simulation_app):
     xform_api.AddScaleOp().Set(Gf.Vec3f(SCALE_FACTOR_GRIP, SCALE_FACTOR_GRIP, SCALE_FACTOR_GRIP))
     print(f"✓ Gripper caricato e scalato di un fattore {SCALE_FACTOR_GRIP} a '{ARTICULATION_ROOT_PATH}'")
 
-    
+    apply_friction_to_gripper(stage, static_friction=200.0, dynamic_friction=200.0)
+
     robot = world.scene.add(Articulation(prim_path=ARTICULATION_ROOT_PATH, name="robotiq_gripper_system"))
     target_prim = stage.GetPrimAtPath(target_prim_path)
    
@@ -174,6 +175,54 @@ def ray_obb_intersection(ray_origin, ray_dir, obb_center, obb_size, obb_axes):
     return t_min if t_min > 0 else t_max
 
 
+def apply_friction_to_gripper(stage, static_friction=2.0, dynamic_friction=1.5, restitution=0.0):
+    """
+    Trova il materiale fisico esistente del gripper, ne modifica le proprietà di attrito
+    e si assicura che sia applicato ai collider delle dita.
+
+    Args:
+        stage (Usd.Stage): Lo stage USD corrente.
+        static_friction (float): Nuovo coefficiente di attrito statico.
+        dynamic_friction (float): Nuovo coefficiente di attrito dinamico.
+        restitution (float): Nuovo coefficiente di restituzione.
+    """
+    # 1. Percorso del materiale fisico esistente fornito dall'utente
+    material_path = "/World/Robotiq_2F_85/Robotiq_2F_85/PhysicsMaterial"
+    
+    # 2. Ottieni il prim del materiale e modificane le proprietà
+    material_prim = stage.GetPrimAtPath(material_path)
+    
+    if not material_prim.IsValid():
+        print(f"ERRORE: Impossibile trovare il materiale fisico esistente a '{material_path}'.")
+        return
+
+    # Applica l'API del materiale fisico per poterlo modificare
+    physics_material = UsdPhysics.MaterialAPI.Apply(material_prim)
+    physics_material.CreateStaticFrictionAttr().Set(static_friction)
+    physics_material.CreateDynamicFrictionAttr().Set(dynamic_friction)
+    physics_material.CreateRestitutionAttr().Set(restitution)
+    print(f"✓ Materiale fisico esistente a '{material_path}' modificato: attrito statico={static_friction}, dinamico={dynamic_friction}")
+
+    # 3. Identifica i prim dei collider delle dita (con i percorsi corretti)
+    #    Questi percorsi sono stati corretti in base al tuo output di errore precedente.
+    finger_collider_paths = [
+        f"{ARTICULATION_ROOT_PATH}/left_inner_finger_pad/Collision",
+        f"{ARTICULATION_ROOT_PATH}/right_inner_finger_pad/Collision"
+    ]
+
+    # 4. Applica il materiale ai collider delle dita
+    for path in finger_collider_paths:
+        collider_prim = stage.GetPrimAtPath(path)
+        if collider_prim.IsValid():
+            # Assicura che il prim abbia la CollisionAPI
+            UsdPhysics.CollisionAPI.Apply(collider_prim)
+            
+            # Crea la relazione per associare il materiale fisico
+            binding_api = UsdPhysics.MaterialBindingAPI.Apply(collider_prim)
+            binding_api.CreatePhysicsMaterialBindingRel().SetTargets([Sdf.Path(material_path)])
+            print(f"  -> Materiale '{material_path}' applicato con successo a '{path}'")
+        else:
+            print(f"ATTENZIONE: Impossibile trovare il prim del collider a '{path}'.")
 
 class State(Enum):
     """Definisce gli stati della FSM per il processo di presa."""
@@ -192,7 +241,7 @@ class GraspingFSM:
     e passaggio alla posa successiva.
     """
 
-    def __init__(self, robot: Articulation, poses: list, obb_info: dict):
+    def __init__(self, robot: Articulation, poses: list, obb_info: dict, stage_utils):
         """
         Inizializza la FSM.
 
@@ -207,6 +256,8 @@ class GraspingFSM:
         self.robot = robot
         self.poses = poses
         self.obb_info = obb_info
+
+        self.stage_utils=stage_utils
         
         # --- Stato Iniziale della FSM ---
         self.state = State.APPROACH
@@ -225,13 +276,15 @@ class GraspingFSM:
         # --- Inizializzazione del Robot ---
         self.robot.disable_gravity()
         self._initialize_joints()
-
         # --- Dispatcher per i Gestori di Stato ---
         # Associa ogni stato a un metodo gestore (_handle_STATO)
         # per evitare un lungo blocco if/elif/else nel metodo step().
         self._state_handlers = {
             s: getattr(self, f"_handle_{s.name.lower()}") for s in State if s != State.FINISH
         }
+
+        #self.stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
+
 
     def _initialize_joints(self):
         """
@@ -287,6 +340,7 @@ class GraspingFSM:
             self.state = State.FINISH
             return
 
+        
         # Resetta i giunti e teletrasporta il robot alla nuova posa
         print(f"\nPose {self._pose_idx + 1}/{len(self.poses)}: teletrasporto.")
         initial_pos = np.zeros(self.robot.num_dof)
@@ -304,11 +358,13 @@ class GraspingFSM:
         """
         Gestisce lo stato di pausa, attendendo per un numero predefinito di frame.
         """
+       
         self._pause_timer += 1
         if self._pause_timer >= self._pause_frames:
             print(f"  -> Pausa terminata. Prossimo stato: {self._next_state_after_pause.name}")
             self.state = self._next_state_after_pause
             self._action_start_time = None # Resetta il timer per la nuova azione
+           
 
     def _handle_approach(self):
         """
@@ -365,6 +421,23 @@ class GraspingFSM:
         else:
             print(f"  -> In sollevamento... Z: {current_pos[2]:.2f}", end='\r')
             self.robot.set_linear_velocity(np.array([0, 0, LIFT_SPEED]))
+        
+        # --- INIZIO MODIFICHE ---
+        
+        # 1. Definisci la posizione di chiusura dei giunti
+        target_joint_positions = np.zeros(self.robot.num_dof)
+        target_joint_positions[self.leader_joint_idx] = GRIPPER_CLOSED_POS
+        target_joint_positions[self.follower_joint_idx] = -GRIPPER_CLOSED_POS
+        
+        # 2. Definisci la velocità di sollevamento
+        lift_velocity = np.array([0, 0, LIFT_SPEED])
+        
+        # 3. Applica ENTRAMBE le azioni (posizione giunti + velocità base) simultaneamente
+        action = ArticulationAction(
+            joint_positions=target_joint_positions,
+           
+        )
+        self.robot.apply_action(action)
 
     # --------------------------------------------------------------------------
     # Metodi Helper
