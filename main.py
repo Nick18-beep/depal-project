@@ -58,6 +58,7 @@ def main_simulation():
         import src.object_creator as object_creator_module
         import src.container_pallet_creator as container_pallet_creator_module
         import src.grip as grip
+        import src.pinza as pinza
         
 
         from depal_utils import scene_setup_utils 
@@ -305,7 +306,9 @@ def main_simulation():
             # --- FINE INIZIALIZZAZIONE GLOBALE ---
 
 
-            if True:
+            USA_GRIP = False
+
+            if USA_GRIP:
                
                 selected=None
 
@@ -446,6 +449,80 @@ def main_simulation():
 
             
 
+            USA_PINZA = True
+
+            if USA_PINZA:
+
+                selected=None
+
+                if box_spawn_cfg['enable']:
+                    selected = spawned_box_prim_paths
+                if ycb_spawn_cfg['enable']:
+                    selected = spawned_object_prim_paths
+                    
+
+
+                for i, box_prim_path_original in enumerate(selected):
+                    print(f"\n  Processing data collection for box {i+1}")
+                    box_path=None
+                    if box_spawn_cfg['enable']:
+                        box_path = f"/World/SpawnedBasicBoxes/BasicBox_{i}"
+                    if ycb_spawn_cfg['enable']:
+                        box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{i}"
+
+                    
+                    print(f"    Targeting box prim path: {box_path}")
+
+                    target_prim_path = box_path
+                    robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
+                    print("robot creato")
+
+                    
+                    for _ in range(30):
+                        simulation_app.update()
+                    robot.initialize()
+                    for _ in range(30):
+                        simulation_app.update()
+                    
+                    poses = pinza.generate_grasp_poses(target_prim)
+                    if not poses:
+                        print("ERRORE: Nessuna posa di presa valida generata. Simulazione interrotta.")
+                        simulation_app.close()
+                        return
+                    
+                    print("✓ Posizionamento iniziale del gripper (nella scena USD)...")
+                    first_pos, first_quat = poses[0]
+                    robot.set_world_pose(position=first_pos, orientation=first_quat)
+                   
+                    # 2. Avviamo la simulazione
+                    print("✓ Avvio della simulazione e del motore fisico...")
+                    timeline.play()
+                    for _ in range(5): simulation_app.update()
+
+
+                    # 3. Inizializziamo la fisica del robot
+                    print("✓ Inizializzazione della fisica del robot...")
+                    robot.initialize()
+                    simulation_app.update()
+
+
+                    
+                    print("✓ Sincronizzazione della posa fisica iniziale...")
+                    robot.set_world_pose(position=first_pos, orientation=first_quat)
+                    robot.set_linear_velocity(np.zeros(3))
+                    robot.set_angular_velocity(np.zeros(3))
+                    simulation_app.update() # Diamo un passo alla simulazione per processare il comando
+                    # --- FINE MODIFICA ---
+                    
+
+                    obb_info = pinza._get_obb_info(target_prim)
+                    fsm = pinza.GraspingFSM( robot, poses, obb_info )# Se necessario dopo ogni run()
+                        
+                    while simulation_app.is_running() and not fsm.is_finished():
+                        simulation_app.update()
+                        fsm.step()
+                
+                print("Simulazione completata.")  
 
 
             
