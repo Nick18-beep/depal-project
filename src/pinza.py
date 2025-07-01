@@ -21,7 +21,7 @@ MIN_SAFE_HEIGHT_Z       = 0.4
 PAUSE_DURATION_SEC      = 0.25
 
 
-APPROACH_SPEED          = 2
+APPROACH_SPEED          = 1
 STOP_BEFORE_DIST        = 0.25
 
 

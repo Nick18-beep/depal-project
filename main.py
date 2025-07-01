@@ -492,37 +492,42 @@ def main_simulation():
                         simulation_app.close()
                         return
                     
-                    print("✓ Posizionamento iniziale del gripper (nella scena USD)...")
-                    first_pos, first_quat = poses[0]
-                    robot.set_world_pose(position=first_pos, orientation=first_quat)
-                   
-                    # 2. Avviamo la simulazione
-                    print("✓ Avvio della simulazione e del motore fisico...")
-                    timeline.play()
-                    for _ in range(5): simulation_app.update()
 
+                    for p in poses:
 
-                    # 3. Inizializziamo la fisica del robot
-                    print("✓ Inizializzazione della fisica del robot...")
-                    robot.initialize()
-                    simulation_app.update()
-
-
+                        print("✓ Posizionamento iniziale del gripper (nella scena USD)...")
+                        first_pos, first_quat = p
+                        robot.set_world_pose(position=first_pos, orientation=first_quat)
                     
-                    print("✓ Sincronizzazione della posa fisica iniziale...")
-                    robot.set_world_pose(position=first_pos, orientation=first_quat)
-                    robot.set_linear_velocity(np.zeros(3))
-                    robot.set_angular_velocity(np.zeros(3))
-                    simulation_app.update() # Diamo un passo alla simulazione per processare il comando
-                    # --- FINE MODIFICA ---
-                    
+                        # 2. Avviamo la simulazione
+                        print("✓ Avvio della simulazione e del motore fisico...")
+                        timeline.play()
+                        for _ in range(5): simulation_app.update()
 
-                    obb_info = pinza._get_obb_info(target_prim)
-                    fsm = pinza.GraspingFSM( robot, poses, obb_info,stage_utils )# Se necessario dopo ogni run()
-                        
-                    while simulation_app.is_running() and not fsm.is_finished():
+
+                        # 3. Inizializziamo la fisica del robot
+                        print("✓ Inizializzazione della fisica del robot...")
+                        robot.initialize()
                         simulation_app.update()
-                        fsm.step()
+
+
+                        
+                        print("✓ Sincronizzazione della posa fisica iniziale...")
+                        robot.set_world_pose(position=first_pos, orientation=first_quat)
+                        robot.set_linear_velocity(np.zeros(3))
+                        robot.set_angular_velocity(np.zeros(3))
+                        simulation_app.update() # Diamo un passo alla simulazione per processare il comando
+                        # --- FINE MODIFICA ---
+                        
+
+                        obb_info = pinza._get_obb_info(target_prim)
+                        fsm = pinza.GraspingFSM( robot, [p], obb_info,stage_utils )# Se necessario dopo ogni run()
+                            
+                        while simulation_app.is_running() and not fsm.is_finished():
+                            simulation_app.update()
+                            fsm.step()
+                        stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+                        robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
                 
                 print("Simulazione completata.")  
 
