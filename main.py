@@ -6,7 +6,7 @@ import random
 import numpy as np 
 import yaml
 import sys 
-
+import json
 import shutil
 
 
@@ -306,164 +306,37 @@ def main_simulation():
             # --- FINE INIZIALIZZAZIONE GLOBALE ---
 
 
-            USA_GRIP = False
-
-            if USA_GRIP:
-               
-                selected=None
-
-                if box_spawn_cfg['enable']:
-                    selected = spawned_box_prim_paths
-                if ycb_spawn_cfg['enable']:
-                    selected = spawned_object_prim_paths
-                    
-
-
-                for i, box_prim_path_original in enumerate(selected):
-                    print(f"\n  Processing data collection for box {i+1}")
-                    box_path=None
-                    if box_spawn_cfg['enable']:
-                        box_path = f"/World/SpawnedBasicBoxes/BasicBox_{i}"
-                    if ycb_spawn_cfg['enable']:
-                        box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{i}"
-
-                    
-                    print(f"    Targeting box prim path: {box_path}")
-
-                    # Non è strettamente necessario creare un'istanza qui se `sample_grasp_grid`
-                    # potesse essere una funzione statica o non dipendente dallo stato dell'istanza
-                    # che viene modificato da run(). Per coerenza con il codice precedente:
-                    print("    Creating temporary SurfaceGripperDirectScript instance for sampling grasp grid...")
-                    temp_sampler_instance = grip.SurfaceGripperDirectScript(
-                        target_object_prim_path=box_path,
-                        grasp_offset_from_top=config_grasp_offset, initial_box_prim_path=config_initial_box_path,
-                        box_mass=config_box_mass, absolute_grip_force=config_absolute_grip_force,
-                        grip_force_multiplier=config_grip_force_multiplier, target_lift_height=config_target_lift_height,
-                        target_horizontal_position=config_target_horizontal_position, z_correction_factor=config_z_correction_factor,
-                        max_z_correction_speed_factor=config_max_z_correction_speed_factor, cone_height=config_cone_height,
-                        cone_radius=config_cone_radius, lift_speed_vertical=config_lift_speed_vertical,
-                        move_speed_horizontal=config_move_speed_horizontal, steps_for_cube_to_settle=config_steps_for_cube_to_settle,
-                        steps_grace_period_after_settle=config_steps_grace_period_after_settle,
-                        steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
-                        steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh,
-                        simulation_app=simulation_app
-                    )
-                    cone_positions = temp_sampler_instance.sample_grasp_grid(box_path)
-                    del temp_sampler_instance
-
-                    print(f"    Found {len(cone_positions)} potential grasp positions for box {i+1}.")
-
-                    for pos_idx, position in enumerate(cone_positions):
-                        print(f"\n      Processing grasp attempt {pos_idx+1}/{len(cone_positions)} for box {i+1} at position: {position}")
-
-                        print("      Creating new SurfaceGripperDirectScript instance for this attempt...")
-                        gripper_script_runner_instance = grip.SurfaceGripperDirectScript(
-                            target_object_prim_path=box_path,
-                            grasp_offset_from_top=config_grasp_offset, initial_box_prim_path=config_initial_box_path,
-                            box_mass=config_box_mass, absolute_grip_force=config_absolute_grip_force,
-                            grip_force_multiplier=config_grip_force_multiplier, target_lift_height=config_target_lift_height,
-                            target_horizontal_position=config_target_horizontal_position, z_correction_factor=config_z_correction_factor,
-                            max_z_correction_speed_factor=config_max_z_correction_speed_factor, cone_height=config_cone_height,
-                            cone_radius=config_cone_radius, lift_speed_vertical=config_lift_speed_vertical,
-                            move_speed_horizontal=config_move_speed_horizontal, steps_for_cube_to_settle=config_steps_for_cube_to_settle,
-                            steps_grace_period_after_settle=config_steps_grace_period_after_settle,
-                            steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
-                            steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh,
-                            simulation_app=simulation_app
-                        )
-
-                        print("      Running simulation script for this attempt...")
-                        gripper_script_runner_instance.run(position)
-                        while not gripper_script_runner_instance.is_task_complete():
-                            simulation_app.update()
-                        
-                        print(f"      Simulation complete for attempt {pos_idx+1}.")
-                        print(f"      Grip status code: {gripper_script_runner_instance.grip_status_code}")
-                        # print(f"      Initial cone placement (world): {gripper_script_runner_instance.initial_cone_placement_position_world}")
-                        # print(f"      Initial cone orientation: {gripper_script_runner_instance.initial_cone_orientation}")
-
-                        if gripper_script_runner_instance.initial_cone_placement_position_world is not None:
-                            projection_info = {
-                                'center_world_m': gripper_script_runner_instance.initial_cone_placement_position_world,
-                                'orientation_wxyz': gripper_script_runner_instance.initial_cone_orientation,
-                                'circle_color': gripper_script_runner_instance.grip_status_code,
-                                'z_value': gripper_script_runner_instance.initial_cone_placement_position_world[2],
-                                'box_idx': i, # Opzionale: per debug o info future
-                                'attempt_idx': pos_idx # Opzionale: per debug o info future
-                            }
-                            all_projections_across_all_boxes.append(projection_info)
-                        else:
-                            print(f"      WARNING: initial_cone_placement_position_world is None for attempt {pos_idx+1}, box {i+1}. Skipping projection data collection.")
-                        
-                        stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd") # Se necessario dopo ogni run()
-                        for _ in range (50):
-                            simulation_app.update()
-
-
-                # --- FINE RACCOLTA DATI PER TUTTI I BOX ---
-                simulation_app.update()
-                simulation_app.update()
-
-                if not all_projections_across_all_boxes:
-                    print("\n--- No projection data collected from any box. No image will be generated. ---")
-                elif K_matrix_global is None:
-                    print("\n--- K_matrix globale non disponibile. Impossibile generare l'immagine combinata. ---")
-                else:
-                    print(f"\n--- Preparing to draw {len(all_projections_across_all_boxes)} projections onto a single image ---")
-                    
-                    print("Sorting all collected projections by Z-value...")
-                    all_projections_across_all_boxes.sort(key=lambda p: p['z_value'])
-
-                    print(f"Generating combined image by repeatedly calling project_circle_topdown...")
-                    print(f"Camera height (cam_pos[2]): {cam_pos[2]}") # Assicurati che cam_pos sia definito globalmente
-
-                    for proj_idx, proj_data in enumerate(all_projections_across_all_boxes):
-                        # print(f"\n  Drawing projection {proj_idx+1}/{len(all_projections_across_all_boxes)} (Box {proj_data['box_idx']+1}, Attempt {proj_data['attempt_idx']+1}) on {final_combined_image_path}")
-                        # print(f"    Center: {proj_data['center_world_m']}, Z-value: {proj_data['z_value']:.4f}")
-                        # print(f"    Orientation: {proj_data['orientation_wxyz']}")
-                        # print(f"    Circle Color (Grip Status): {proj_data['circle_color']}")
-                        
-                        generate_image_pick.project_circle_topdown(
-                            radius_m          = config_cone_radius, # Assicurati che config_cone_radius sia definito globalmente
-                            center_world_m    = proj_data['center_world_m'],
-                            orientation_wxyz  = proj_data['orientation_wxyz'],
-                            camera_height_m   = cam_pos[2],
-                            K_matrix_3x3      = K_matrix_global,
-                            image_width       = 1280, # O da configurazione
-                            image_height      = 720,  # O da configurazione
-                            output_image_path = final_combined_image_path, # SEMPRE LO STESSO PATH GLOBALE
-                            roll_deg          = 90.0, # O da configurazione
-                            circle_color      = proj_data['circle_color'],
-                        )
-                        # print(f"    Projection {proj_idx+1} drawn.")
-                    
-                    print(f"\n--- Final combined image saved to: {final_combined_image_path} ---")
-
-                # print("\n--- All boxes processed, reloading stage ---") # Se necessario alla fine di tutto
-                # stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
-
-            else:
-                print("Box insufficienti o box spawning disabilitato.")
-
- 
-
-            
-            from omni.isaac.core import World
             USA_PINZA = True
+
+
+
 
             if USA_PINZA:
 
+
+                # MODIFICA: Inizializza un DIZIONARIO per raccogliere i dati raggruppati per oggetto.
+                # La chiave sarà il path dell'oggetto, il valore una lista dei suoi tentativi di presa.
+                grasp_data_by_object = {}
+
+
+
+
                 selected=None
+
+
+
 
                 if box_spawn_cfg['enable']:
                     selected = spawned_box_prim_paths
                 if ycb_spawn_cfg['enable']:
                     selected = spawned_object_prim_paths
-                    
+                   
 
-                #stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
+
+
+
                 for i, box_prim_path_original in enumerate(selected):
-                                
+                               
                     print(f"\n  Processing data collection for box {i+1}")
                     box_path=None
                     if box_spawn_cfg['enable']:
@@ -471,68 +344,164 @@ def main_simulation():
                     if ycb_spawn_cfg['enable']:
                         box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{i}"
 
-                    
+
+
+
+                   
                     print(f"    Targeting box prim path: {box_path}")
 
+
+
+
                     target_prim_path = box_path
-                    
+                   
                     if i==0:
                         robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
                         print("robot creato")
-                        
-                        
+                       
+                       
                         for _ in range(30):
                             simulation_app.update()
                         robot.initialize()
                         for _ in range(30):
                             simulation_app.update()
-                    
+                   
                     poses = pinza.generate_grasp_poses(target_prim)
                     if not poses:
-                        print("ERRORE: Nessuna posa di presa valida generata. Simulazione interrotta.")
-                        simulation_app.close()
-                        return
-                    
+                        print(f"ATTENZIONE: Nessuna posa di presa valida generata per {target_prim_path}. Salto l'oggetto.")
+                        continue # Salta al prossimo oggetto
+                   
+                    all_results_for_this_object = []
+                    print("le posizioni che testo sono: ",len(poses))
 
-                    for p in poses:
+
+
+
+                    for p_idx, p in enumerate(poses):
+                       
+                        print(f"\n--- Inizio tentativo di presa {p_idx + 1}/{len(poses)} per l'oggetto {target_prim_path} ---")
+
+
+
 
                         print("✓ Posizionamento iniziale del gripper (nella scena USD)...")
                         first_pos, first_quat = p
                         robot.set_world_pose(position=first_pos, orientation=first_quat)
-                    
-                        # 2. Avviamo la simulazione
+                   
                         print("✓ Avvio della simulazione e del motore fisico...")
                         timeline.play()
                         for _ in range(5): simulation_app.update()
 
 
-                        # 3. Inizializziamo la fisica del robot
+
+
                         print("✓ Inizializzazione della fisica del robot...")
                         robot.initialize()
                         simulation_app.update()
 
 
-                        
+
+
                         print("✓ Sincronizzazione della posa fisica iniziale...")
                         robot.set_world_pose(position=first_pos, orientation=first_quat)
                         robot.set_linear_velocity(np.zeros(3))
                         robot.set_angular_velocity(np.zeros(3))
-                        simulation_app.update() # Diamo un passo alla simulazione per processare il comando
-                        # --- FINE MODIFICA ---
-                        
+                        simulation_app.update()
+
+
+
 
                         obb_info = pinza._get_obb_info(target_prim)
-                        fsm = pinza.GraspingFSM( robot, [p], obb_info,stage_utils )# Se necessario dopo ogni run()
-                            
+                        fsm = pinza.GraspingFSM( robot, target_prim,[p], obb_info,stage_utils )
+                           
                         while simulation_app.is_running() and not fsm.is_finished():
                             simulation_app.update()
                             fsm.step()
-                        stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+
+
+
+
+                     
+                        result = fsm.get_result()
+                        all_results_for_this_object.append(result)
+                        print(f"--- Risultato per Posa: {result.name} ---")
+
+
+
+
+                        # --- MODIFICA: Raccolta dati per la struttura a dizionario ---
+                        is_success = "SUCCESS" in result.name.upper()
                         
+                        position_list = first_pos.tolist()
+                        orientation_quat_wxyz = first_quat.tolist()
+
+
+                        # Crea il dizionario solo per questo tentativo (SENZA il path dell'oggetto)
+                        pose_result_data = {
+                            "gripper_position": position_list,
+                            "gripper_orientation_quat_wxyz": orientation_quat_wxyz,
+                            "success": is_success
+                        }
+
+
+                        # Aggiungi il risultato alla lista corretta dentro al dizionario principale.
+                        # setdefault(key, []) assicura che la lista esista prima di fare l'append.
+                        grasp_data_by_object.setdefault(target_prim_path, []).append(pose_result_data)
+                        # --- FINE MODIFICA ---
+
+
+
+
+                        print("✓ Ricarico la scena per il prossimo tentativo...")
+                        stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
                         robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
+                   
+                    print(f"\n--- Riepilogo risultati per l'oggetto {target_prim_path} ---")
+                    for i_res, r in enumerate(all_results_for_this_object):
+                        print(f"  Posa {i_res}: {r.name}")
+               
+                print("\n--- Tutti gli oggetti sono stati processati. ---")
+
+
+
+
+                # --- MODIFICA: Salvataggio del dizionario aggregato in un file JSON ---
+                if grasp_data_by_object:
+                    output_pinza_dir = os.path.join(
+                        current_script_dir, 
+                        "output", 
+                        f"img{img_idx}", 
+                        "left", 
+                        "pinza"
+                    )
+                    os.makedirs(output_pinza_dir, exist_ok=True)
+                    
+                    json_file_path = os.path.join(output_pinza_dir, "grasp_results.json")
+                    
+                    print(f"\n--- Salvataggio dei risultati della pinza in: {json_file_path} ---")
+                    
+                    try:
+                        with open(json_file_path, 'w') as f:
+                            json.dump(grasp_data_by_object, f, indent=4)
+                        print(f"✓ Dati di presa per {len(grasp_data_by_object)} oggetti salvati con successo.")
+                    except Exception as e:
+                        print(f"ERRORE durante il salvataggio del file JSON: {e}")
+                else:
+                    print("\n--- Nessun dato di presa raccolto, nessun file JSON da salvare. ---")
+                # --- FINE MODIFICA ---
+
+
+
+
+                print("Simulazione completata.")
+
+
+
+
+                   
                         
                 
-                print("Simulazione completata.")  
+            
 
 
             

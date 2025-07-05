@@ -15,14 +15,14 @@ from enum import Enum, auto
 # ------------------------------------------------------------------------------
 
 
-NUM_CANDIDATE_POSES     = 3
+NUM_CANDIDATE_POSES     = 10
 GRIPPER_APPROACH_OFFSET = 1.5
-MIN_SAFE_HEIGHT_Z       = 0.4
+MIN_SAFE_HEIGHT_Z       = 0.45
 PAUSE_DURATION_SEC      = 0.25
 
 
 APPROACH_SPEED          = 1
-STOP_BEFORE_DIST        = 0.25
+STOP_BEFORE_DIST        = 0.4
 
 
 GRIPPER_OPEN_POS        = 0.0
@@ -31,11 +31,11 @@ GRIPPER_TOLERANCE       = 0.02
 GRIP_TIMEOUT_SEC        = 2.0
 
 
-LIFT_HEIGHT_Z           = 1
+LIFT_HEIGHT_Z           = 1.5
 LIFT_SPEED              = 2
 
 
-SCALE_FACTOR_GRIP       = 3.5
+SCALE_FACTOR_GRIP       = 4.5
 
 
 URL_GRIPPER = (
@@ -76,53 +76,69 @@ def setup_scene( target_prim_path,simulation_app):
 def _get_obb_info(obj: Usd.Prim) -> dict:
     """
     Calcola le informazioni dell'Oriented Bounding Box (OBB) di un prim
-    nello spazio globale, tenendo conto di tutte le trasformazioni annidate.
+    nello spazio globale. Questa versione gestisce correttamente le scale non uniformi
+    derivando gli assi e la scala direttamente dalla matrice di trasformazione.
     """
     time = Usd.TimeCode.Default()
     
+    # 1. Calcola il bounding box locale (non trasformato)
     bbox_cache = UsdGeom.BBoxCache(time, [UsdGeom.Tokens.default_], useExtentsHint=True)
     untransformed_bbox = bbox_cache.ComputeUntransformedBound(obj)
     local_range = untransformed_bbox.GetRange()
     local_size = np.array(local_range.GetSize())
     
+    # Gestione di oggetti con dimensione nulla
     if np.any(local_size < 1e-6):
-        print(f"ATTENZIONE: Il prim {obj.GetPath()} ha una dimensione locale quasi nulla. Restituisco valori di default.")
+        print(f"ATTENZIONE: Il prim {obj.GetPath()} ha una dimensione locale quasi nulla.")
         xformable = UsdGeom.Xformable(obj)
         world_transform_mtx = xformable.ComputeLocalToWorldTransform(time)
         center = np.array(world_transform_mtx.ExtractTranslation())
-        return {"obb_center": center, "obb_size": np.zeros(3), "obb_axes": [np.array([1,0,0]), np.array([0,1,0]), np.array([0,0,1])]}
+        # Restituisce una OBB di dimensione zero con orientamento standard
+        return {
+            "obb_center": center, 
+            "obb_size": np.zeros(3), 
+            "obb_axes": [np.array([1,0,0]), np.array([0,1,0]), np.array([0,0,1])]
+        }
 
-
+    # 2. Ottieni la matrice di trasformazione completa da locale a globale
     xformable = UsdGeom.Xformable(obj)
     world_transform_mtx = xformable.ComputeLocalToWorldTransform(time)
     
+    # Il centro è semplicemente la componente di traslazione della matrice
     center = np.array(world_transform_mtx.ExtractTranslation())
-    rotation_quat = world_transform_mtx.ExtractRotationQuat()
     
+    # Estrai la sottomatrice 3x3 che contiene rotazione e scala
     m3x3 = world_transform_mtx.ExtractRotationMatrix()
     
-    scale_x = Gf.Vec3d(m3x3[0][0], m3x3[1][0], m3x3[2][0]).GetLength()
-    scale_y = Gf.Vec3d(m3x3[0][1], m3x3[1][1], m3x3[2][1]).GetLength()
-    scale_z = Gf.Vec3d(m3x3[0][2], m3x3[1][2], m3x3[2][2]).GetLength()
+    # 3. Estrai scala e assi dalle colonne della matrice 3x3
+    
+    # Le colonne della matrice sono i vettori base trasformati
+    col0 = m3x3.GetColumn(0)
+    col1 = m3x3.GetColumn(1)
+    col2 = m3x3.GetColumn(2)
+    
+    # La scala lungo ogni asse è la lunghezza (norma) del vettore colonna corrispondente
+    scale_x = col0.GetLength()
+    scale_y = col1.GetLength()
+    scale_z = col2.GetLength()
     world_scale = np.array([scale_x, scale_y, scale_z])
-
-
+    
+    # Gli assi orientati nello spazio globale sono i vettori colonna normalizzati
+    axes = [
+        np.array(col0.GetNormalized()),
+        np.array(col1.GetNormalized()),
+        np.array(col2.GetNormalized())
+    ]
+    
+    # La dimensione globale dell'OBB è la dimensione locale moltiplicata per la scala globale
     world_size = local_size * world_scale
     
-    rotation_only_mtx = Gf.Matrix3d(rotation_quat)
-    axes = [
-        np.array(rotation_only_mtx * Gf.Vec3d.XAxis()),
-        np.array(rotation_only_mtx * Gf.Vec3d.YAxis()),
-        np.array(rotation_only_mtx * Gf.Vec3d.ZAxis())
-    ]
-
-
-    print(f"--- OBB Info per {obj.GetPath()} ---")
-    print(f"  Centro Globale: {center}")
-    print(f"  Scala Globale Calcolata: {world_scale}")
-    print(f"  Dimensione Locale: {local_size}")
-    print(f"  Dimensione Globale Calcolata: {world_size}")
-    print("------------------------------------")
+    # (Opzionale) Stampa di debug per verifica
+    # print(f"--- OBB Info per {obj.GetPath()} (Metodo Robusto) ---")
+    # print(f" 	Centro Globale: {center}")
+    # print(f" 	Scala Globale: {world_scale}")
+    # print(f" 	Dimensione Globale: {world_size}")
+    # print("-------------------------------------------------")
     
     return {"obb_center": center, "obb_size": world_size, "obb_axes": axes}
 
@@ -148,7 +164,7 @@ def generate_grasp_poses(obj, n=NUM_CANDIDATE_POSES, extra=GRIPPER_APPROACH_OFFS
     obb = _get_obb_info(obj); center, size, axes = obb["obb_center"], obb["obb_size"], obb["obb_axes"]
     long_axis = axes[int(np.argmax(size))]; dist = np.linalg.norm(size) * 0.5 + extra
     poses, tries = [], 0
-    while len(poses) < n and tries < n * 50:
+    while len(poses) < n and tries < n * 1000:
         tries += 1
         phi, costheta = np.random.uniform(0, 2 * np.pi), np.random.uniform(-1, 1); theta = np.arccos(costheta)
         dir_vec = np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)])
@@ -234,167 +250,170 @@ class State(Enum):
     FINISH = auto()
 
 
+class GraspResult(Enum):
+    """Definisce i possibili risultati di un tentativo di presa."""
+    PENDING = auto()  # Il tentativo è in corso
+    SUCCESS = auto()  # La presa è riuscita
+    FAILURE = auto()  # La presa è fallita per qualsiasi motivo
+
+
+# ------------------------------------------------------------------------------
+# --- CLASSE GRASPING FSM ---
+# ------------------------------------------------------------------------------
 class GraspingFSM:
     """
-    Una Macchina a Stati Finiti (FSM) per gestire il processo di presa di un robot.
-    Controlla il robot attraverso una sequenza di stati: avvicinamento, presa, sollevamento
-    e passaggio alla posa successiva.
+    Una FSM autonoma che esegue un ciclo di prese, partendo dal presupposto 
+    di fallimento e cercando di raggiungere il successo, con reset di stabilità
+    per prese più affidabili.
     """
 
-    def __init__(self, robot: Articulation, poses: list, obb_info: dict, stage_utils):
-        """
-        Inizializza la FSM.
 
-        Args:
-            robot (Articulation): L'oggetto robot da controllare.
-            poses (list): Una lista di pose (posizione, orientamento) che il robot deve raggiungere.
-            obb_info (dict): Informazioni sull'Oriented Bounding Box (OBB) dell'oggetto da afferrare.
-            load: Un parametro di carico (non utilizzato nel codice fornito, ma mantenuto nella firma).
-        """
-        # --- Componenti e Parametri Principali ---
+    def __init__(self, robot: Articulation, target_prim: Usd.Prim, poses: list, obb_info: dict, stage_utils):
+        # --- Componenti e Parametri ---
         self.world = World()
         self.robot = robot
-        self.poses = poses
+        self.target_prim = target_prim
+        self.poses = poses if poses else []
         self.obb_info = obb_info
+        self.stage_utils = stage_utils
+       
+        # --- Stato Iniziale FSM ---
+        self.state = State.NEXT_POSE if self.poses else State.FINISH
+        self._pose_idx = -1
 
-        self.stage_utils=stage_utils
-        
-        # --- Stato Iniziale della FSM ---
-        self.state = State.APPROACH
-        self._pose_idx = 0
 
-        # --- Variabili di Supporto per Azioni e Pause ---
+        # --- Tracciamento dei Risultati ---
+        self.current_result = GraspResult.FAILURE # Default per l'esperimento
+        self.results_history = []
+        self._gripper_made_contact = False
+
+
+        # --- Variabili di Supporto ---
         self._action_start_time = None
         self._lift_target_z = None
         self._pause_timer = 0
         self._next_state_after_pause = None
-        
-        # --- Configurazione basata sulla Fisica ---
+       
+        # --- Configurazione Fisica ---
         physics_dt = self.world.get_physics_dt()
         self._pause_frames = int(PAUSE_DURATION_SEC / physics_dt) if physics_dt > 0 else 15
 
-        # --- Inizializzazione del Robot ---
+
+        # --- Inizializzazione Robot ---
         self.robot.disable_gravity()
         self._initialize_joints()
-        # --- Dispatcher per i Gestori di Stato ---
-        # Associa ogni stato a un metodo gestore (_handle_STATO)
-        # per evitare un lungo blocco if/elif/else nel metodo step().
+        
+        
+        # --- Dispatcher di Stato ---
         self._state_handlers = {
             s: getattr(self, f"_handle_{s.name.lower()}") for s in State if s != State.FINISH
         }
 
-        #self.stage_utils.save_stage_with_pause_and_resume("stage_freeze_temp")
+
+    def get_results_history(self) -> list:
+        return self.results_history
 
 
-    def _initialize_joints(self):
-        """
-        Trova gli indici dei giunti del gripper e imposta la loro posizione iniziale (aperta).
-        In caso di errore, la FSM passa direttamente allo stato FINISH.
-        """
-        try:
-            dof_names = self.robot.dof_names
-            self.leader_joint_idx = dof_names.index("finger_joint")
-            self.follower_joint_idx = dof_names.index("right_outer_knuckle_joint")
-            
-            initial_pos = np.zeros(self.robot.num_dof)
-            initial_pos[self.leader_joint_idx] = GRIPPER_OPEN_POS
-            self.robot.set_joint_positions(positions=initial_pos)
-        except (ValueError, IndexError) as e:
-            print(f"ERRORE FSM in inizializzazione giunti: {e}")
-            self.state = State.FINISH
+    def get_result(self) -> GraspResult:
+        return self.current_result
+
+
+    def is_finished(self) -> bool:
+        return self.state == State.FINISH
+
 
     def step(self):
-        """Esegue un singolo passo logico della FSM, invocando il gestore per lo stato corrente."""
         if not self.is_finished():
             handler = self._state_handlers.get(self.state)
             if handler:
                 handler()
 
-    def is_finished(self) -> bool:
-        """Restituisce True se la FSM ha completato il suo ciclo."""
-        return self.state == State.FINISH
+
+    # --------------------------------------------------------------------------
+    # Metodi di Controllo e Logica Interna
+    # --------------------------------------------------------------------------
+    
+    def _initialize_joints(self):
+        try:
+            dof_names = self.robot.dof_names
+            self.leader_joint_idx = dof_names.index("finger_joint")
+            self.follower_joint_idx = dof_names.index("right_outer_knuckle_joint")
+        except (ValueError, IndexError) as e:
+            print(f"ERRORE FSM in inizializzazione giunti: {e}")
+            self._transition_to(State.FINISH, use_pause=False)
+
 
     def _transition_to(self, new_state: State, use_pause: bool = True):
-        """
-        Gestisce la transizione a un nuovo stato, con una pausa intermedia opzionale.
-        """
         self._action_start_time = None
-        if use_pause:
-            self.state = State.PAUSE
-            self._pause_timer = 0
+        if use_pause and new_state != State.FINISH:
+            self.state = State.PAUSE; self._pause_timer = 0
             self._next_state_after_pause = new_state
         else:
             self.state = new_state
+
 
     # --------------------------------------------------------------------------
     # Metodi Gestori di Stato (_handle_*)
     # --------------------------------------------------------------------------
 
-    def _handle_next_pose(self):
-        """
-        Passa alla posa successiva nella lista. Se non ci sono più pose, termina.
-        """
-        self._pose_idx += 1
-        if self._pose_idx >= len(self.poses):
-            print("\nDemo terminata.")
-            self.state = State.FINISH
-            return
 
+    def _handle_next_pose(self):
+        """Archivia il risultato precedente e prepara il nuovo tentativo."""
+        if self._pose_idx >= 0:
+            self.results_history.append(self.current_result)
+            print(f"--- Risultato Posa {self._pose_idx + 1}/{len(self.poses)}: {self.current_result.name} ---")
+
+
+        self._pose_idx += 1
         
-        # Resetta i giunti e teletrasporta il robot alla nuova posa
-        print(f"\nPose {self._pose_idx + 1}/{len(self.poses)}: teletrasporto.")
+        if self._pose_idx >= len(self.poses):
+            print("\n== Tutti i tentativi sono stati completati. ==")
+            self._transition_to(State.FINISH, use_pause=False); return
+
+
+        print(f"\n--- Inizio Tentativo di Presa {self._pose_idx + 1}/{len(self.poses)} ---")
+        self.current_result = GraspResult.FAILURE
+        self._gripper_made_contact = False
+        
         initial_pos = np.zeros(self.robot.num_dof)
         initial_pos[self.leader_joint_idx] = GRIPPER_OPEN_POS
         self.robot.set_joint_positions(positions=initial_pos)
-
         pos, quat = self.poses[self._pose_idx]
         self.robot.set_world_pose(position=pos, orientation=quat)
+        
+        ### STABILITÀ ###
+        # Azzera completamente qualsiasi moto residuo dal tentativo precedente
         self.robot.set_linear_velocity(np.zeros(3))
         self.robot.set_angular_velocity(np.zeros(3))
-        
-        self._transition_to(State.APPROACH)
+       
+        self._transition_to(State.APPROACH, use_pause=False)
+
 
     def _handle_pause(self):
-        """
-        Gestisce lo stato di pausa, attendendo per un numero predefinito di frame.
-        """
-       
         self._pause_timer += 1
         if self._pause_timer >= self._pause_frames:
-            print(f"  -> Pausa terminata. Prossimo stato: {self._next_state_after_pause.name}")
-            self.state = self._next_state_after_pause
-            self._action_start_time = None # Resetta il timer per la nuova azione
-           
-
+            self.state = self._next_state_after_pause; self._action_start_time = None
+    
     def _handle_approach(self):
-        """
-        Gestisce l'avvicinamento del gripper all'oggetto target.
-        """
-        print("  -> In avvicinamento...", end='\r')
         gripper_pos, _ = self.robot.get_world_pose()
         ray_dir_vec = self.obb_info["obb_center"] - gripper_pos
-        dist_to_center = np.linalg.norm(ray_dir_vec)
-
-        if dist_to_center < 1e-6: # Evita divisione per zero
-            self.robot.set_linear_velocity(np.zeros(3))
-            self._transition_to(State.GRASP)
-            return
-
-        ray_dir = ray_dir_vec / dist_to_center
+        if np.linalg.norm(ray_dir_vec) < 1e-6: self._transition_to(State.GRASP, use_pause=False); return
+        
+        ray_dir = ray_dir_vec / np.linalg.norm(ray_dir_vec)
         dist_to_box = ray_obb_intersection(gripper_pos, ray_dir, **self.obb_info)
-
+        
         if dist_to_box is not None and dist_to_box <= STOP_BEFORE_DIST:
-            print("\n  -> Posizione di pre-presa raggiunta.")
+            ### STABILITÀ ###
+            # Momento critico 1: Fermati completamente prima di tentare la presa
+            print("\n  -> Posizione di pre-presa raggiunta. Stabilizzazione...")
             self.robot.set_linear_velocity(np.zeros(3))
             self.robot.set_angular_velocity(np.zeros(3))
             self._transition_to(State.GRASP)
-        else:
+        else: 
             self.robot.set_linear_velocity(ray_dir * APPROACH_SPEED)
 
+
     def _handle_grasp(self):
-        """
-        Gestisce la chiusura del gripper per afferrare l'oggetto.
-        """
         target_positions = np.zeros(self.robot.num_dof)
         target_positions[self.leader_joint_idx] = GRIPPER_CLOSED_POS
         target_positions[self.follower_joint_idx] = -GRIPPER_CLOSED_POS
@@ -402,81 +421,70 @@ class GraspingFSM:
         self.robot.set_linear_velocity(np.zeros(3))
         self.robot.set_angular_velocity(np.zeros(3))
 
+
     def _handle_lift(self):
-        """
-        Gestisce il sollevamento del robot (e dell'oggetto) a un'altezza predefinita.
-        """
-        current_pos, _ = self.robot.get_world_pose()
+        if not self._gripper_made_contact:
+            print("\n  -> Fallimento: Presa a vuoto (il gripper non ha toccato nulla).")
+            self._transition_to(State.NEXT_POSE); return
+            
+        obj_xform = UsdGeom.Xformable(self.target_prim)
+        obj_transform = obj_xform.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        obj_pos = np.array(obj_transform.ExtractTranslation())
+        gripper_pos, _ = self.robot.get_world_pose()
+        
+        object_diagonal = np.linalg.norm(self.obb_info["obb_size"])
+        max_allowed_distance = object_diagonal / 2.0 + 0.5
+
+
+        current_distance = np.linalg.norm(gripper_pos - obj_pos)
+
+
+        if current_distance > max_allowed_distance:
+            print(f"\n!!!--- Fallimento: Oggetto perso! Distanza: {current_distance:.2f}m > Soglia: {max_allowed_distance:.2f}m ---!!!")
+            self._transition_to(State.NEXT_POSE); return
         
         if self._action_start_time is None:
-            print("  -> Inizio sollevamento.")
-            self._action_start_time = self.world.current_time
-            self._lift_target_z = current_pos[2] + LIFT_HEIGHT_Z
+            ### STABILITÀ ###
+            # Momento critico 2: Azzera ogni rotazione residua dalla presa prima di sollevare
+            print("  -> Presa riuscita. Stabilizzazione prima del sollevamento...")
+            self.robot.set_angular_velocity(np.zeros(3))
             
-        if current_pos[2] >= self._lift_target_z:
-            print("\n  -> Sollevamento completato.")
-            self.robot.set_linear_velocity(np.zeros(3))
-            self._lift_target_z = None
+            self._action_start_time = self.world.current_time
+            self._lift_target_z = gripper_pos[2] + LIFT_HEIGHT_Z
+           
+        if self.robot.get_world_pose()[0][2] >= self._lift_target_z:
+            print("\n  -> SUCCESSO: Sollevamento completato con oggetto in mano.")
+            self.current_result = GraspResult.SUCCESS
             self._transition_to(State.NEXT_POSE)
         else:
-            print(f"  -> In sollevamento... Z: {current_pos[2]:.2f}", end='\r')
             self.robot.set_linear_velocity(np.array([0, 0, LIFT_SPEED]))
-        
-        # --- INIZIO MODIFICHE ---
-        
-        # 1. Definisci la posizione di chiusura dei giunti
-        target_joint_positions = np.zeros(self.robot.num_dof)
-        target_joint_positions[self.leader_joint_idx] = GRIPPER_CLOSED_POS
-        target_joint_positions[self.follower_joint_idx] = -GRIPPER_CLOSED_POS
-        
-        # 2. Definisci la velocità di sollevamento
-        lift_velocity = np.array([0, 0, LIFT_SPEED])
-        
-        # 3. Applica ENTRAMBE le azioni (posizione giunti + velocità base) simultaneamente
-        action = ArticulationAction(
-            joint_positions=target_joint_positions,
-           
-        )
-        self.robot.apply_action(action)
+            target_joint_positions = np.zeros(self.robot.num_dof)
+            target_joint_positions[self.leader_joint_idx] = GRIPPER_CLOSED_POS
+            target_joint_positions[self.follower_joint_idx] = -GRIPPER_CLOSED_POS
+            self.robot.apply_action(ArticulationAction(joint_positions=target_joint_positions))
 
-    # --------------------------------------------------------------------------
-    # Metodi Helper
-    # --------------------------------------------------------------------------
-    
+
     def _handle_joint_action(self, target_positions: np.ndarray, action_name: str, next_state: State):
-        """
-        Helper generico per gestire un'azione sui giunti che richiede tempo per completarsi.
-        Monitora il raggiungimento della posizione target o un timeout.
-
-        Args:
-            target_positions (np.ndarray): Le posizioni target dei giunti.
-            action_name (str): Il nome dell'azione (es. "Chiusura") per i messaggi di log.
-            next_state (State): Lo stato a cui passare al completamento.
-        """
         if self._action_start_time is None:
-            print(f"  -> Inizio {action_name.lower()}.")
             self.robot.apply_action(ArticulationAction(joint_positions=target_positions))
-            self._action_start_time = self.world.current_time
-            return
+            self._action_start_time = self.world.current_time; return
+
 
         cur_pos = self.robot.get_joint_positions()
-        if cur_pos is None: return
+        if cur_pos is None: self._transition_to(State.NEXT_POSE); return
 
-        elapsed = self.world.current_time - self._action_start_time
-        is_done = np.allclose(cur_pos, target_positions, atol=GRIPPER_TOLERANCE)
-        is_timed_out = elapsed > GRIP_TIMEOUT_SEC
 
-        if is_done or is_timed_out:
-            status_icon = '⚠ TIMEOUT' if is_timed_out and not is_done else '✓'
-            print(f"\n  -> {status_icon} {action_name} completata.")
-            # Ferma il movimento mantenendo la posizione corrente
+        is_fully_closed = np.allclose(cur_pos, target_positions, atol=GRIPPER_TOLERANCE)
+        is_timed_out = (self.world.current_time - self._action_start_time) > GRIP_TIMEOUT_SEC
+        
+        if not is_fully_closed: self._gripper_made_contact = True
+
+
+        if is_fully_closed or is_timed_out:
+            if is_fully_closed: self._gripper_made_contact = False
             self.robot.apply_action(ArticulationAction(joint_positions=cur_pos))
             self._transition_to(next_state)
-        else:
-            # Messaggio di stato in linea
-            status_msg = (
-                f"  -> In {action_name.lower()}... "
-                f"L:{cur_pos[self.leader_joint_idx]:.2f} "
-                f"R:{cur_pos[self.follower_joint_idx]:.2f} | T:{elapsed:.1f}s"
-            )
-            print(status_msg, end='\r')
+
+
+
+
