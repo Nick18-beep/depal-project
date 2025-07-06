@@ -15,7 +15,7 @@ from enum import Enum, auto
 # ------------------------------------------------------------------------------
 
 
-NUM_CANDIDATE_POSES     = 10
+NUM_CANDIDATE_POSES     = 5
 GRIPPER_APPROACH_OFFSET = 1.5
 MIN_SAFE_HEIGHT_Z       = 0.45
 PAUSE_DURATION_SEC      = 0.25

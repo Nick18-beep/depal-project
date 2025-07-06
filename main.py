@@ -315,8 +315,18 @@ def main_simulation():
 
 
                 # MODIFICA: Inizializza un DIZIONARIO per raccogliere i dati raggruppati per oggetto.
-                # La chiave sarà il path dell'oggetto, il valore una lista dei suoi tentativi di presa.
                 grasp_data_by_object = {}
+
+
+                # MODIFICA: Ottieni il quaternione di rotazione dalla matrice R_world2cam.
+                # Questo quaternione rappresenta l'orientamento della camera rispetto al mondo
+                # e ci servirà per trasformare l'orientamento del gripper.
+                rot_matrix_gf = Gf.Matrix3d(
+                    R_world2cam[0,0], R_world2cam[0,1], R_world2cam[0,2],
+                    R_world2cam[1,0], R_world2cam[1,1], R_world2cam[1,2],
+                    R_world2cam[2,0], R_world2cam[2,1], R_world2cam[2,2]
+                )
+                Q_cam_world = rot_matrix_gf.ExtractRotation().GetQuat()
 
 
 
@@ -369,11 +379,11 @@ def main_simulation():
                     poses = pinza.generate_grasp_poses(target_prim)
                     if not poses:
                         print(f"ATTENZIONE: Nessuna posa di presa valida generata per {target_prim_path}. Salto l'oggetto.")
-                        continue # Salta al prossimo oggetto
+                        continue
                    
                     all_results_for_this_object = []
                     print("le posizioni che testo sono: ",len(poses))
-
+                    
 
 
 
@@ -382,10 +392,10 @@ def main_simulation():
                         print(f"\n--- Inizio tentativo di presa {p_idx + 1}/{len(poses)} per l'oggetto {target_prim_path} ---")
 
 
-
-
-                        print("✓ Posizionamento iniziale del gripper (nella scena USD)...")
+                        # 'p' contiene la posa in coordinate del MONDO
                         first_pos, first_quat = p
+                        
+                        # Il robot deve essere posizionato nel mondo, quindi usiamo le coordinate originali
                         robot.set_world_pose(position=first_pos, orientation=first_quat)
                    
                         print("✓ Avvio della simulazione e del motore fisico...")
@@ -397,6 +407,8 @@ def main_simulation():
 
                         print("✓ Inizializzazione della fisica del robot...")
                         robot.initialize()
+
+                        
                         simulation_app.update()
 
 
@@ -413,10 +425,20 @@ def main_simulation():
 
                         obb_info = pinza._get_obb_info(target_prim)
                         fsm = pinza.GraspingFSM( robot, target_prim,[p], obb_info,stage_utils )
+                        simulation_app.update()
+                        
+                        gripper_pos, gripper_orientation = robot.get_world_pose()
+                        print(f"Posizione della pinza: {gripper_pos}")
+                            
+                        print(f"Orientamento della pinza: {gripper_orientation}")
+
+                        
                            
                         while simulation_app.is_running() and not fsm.is_finished():
                             simulation_app.update()
                             fsm.step()
+                            
+                            
 
 
 
@@ -429,14 +451,27 @@ def main_simulation():
 
 
 
-                        # --- MODIFICA: Raccolta dati per la struttura a dizionario ---
+                        # --- MODIFICA: Trasformazione coordinate da World a Camera SINISTRA ---
+                        # 1. Trasforma la POSIZIONE
+                        position_in_cam_coords = R_world2cam @ first_pos + t_world2cam
+
+
+                        # 2. Trasforma l'ORIENTAMENTO (quaternione)
+                        gripper_quat_world = Gf.Quatd(first_quat[0], Gf.Vec3d(first_quat[1], first_quat[2], first_quat[3]))
+                        gripper_quat_cam = Q_cam_world * gripper_quat_world # Applica la rotazione della camera
+                        
+                        # 3. Riconverti in un formato salvabile (lista)
+                        position_list = position_in_cam_coords.tolist()
+                        orientation_quat_wxyz = [
+                            gripper_quat_cam.GetReal(), 
+                            *gripper_quat_cam.GetImaginary()
+                        ]
+                        # --- FINE MODIFICA ---
+
+
                         is_success = "SUCCESS" in result.name.upper()
                         
-                        position_list = first_pos.tolist()
-                        orientation_quat_wxyz = first_quat.tolist()
-
-
-                        # Crea il dizionario solo per questo tentativo (SENZA il path dell'oggetto)
+                        # Crea il dizionario usando le nuove coordinate trasformate
                         pose_result_data = {
                             "gripper_position": position_list,
                             "gripper_orientation_quat_wxyz": orientation_quat_wxyz,
@@ -444,10 +479,7 @@ def main_simulation():
                         }
 
 
-                        # Aggiungi il risultato alla lista corretta dentro al dizionario principale.
-                        # setdefault(key, []) assicura che la lista esista prima di fare l'append.
                         grasp_data_by_object.setdefault(target_prim_path, []).append(pose_result_data)
-                        # --- FINE MODIFICA ---
 
 
 
@@ -465,7 +497,6 @@ def main_simulation():
 
 
 
-                # --- MODIFICA: Salvataggio del dizionario aggregato in un file JSON ---
                 if grasp_data_by_object:
                     output_pinza_dir = os.path.join(
                         current_script_dir, 
@@ -483,17 +514,18 @@ def main_simulation():
                     try:
                         with open(json_file_path, 'w') as f:
                             json.dump(grasp_data_by_object, f, indent=4)
-                        print(f"✓ Dati di presa per {len(grasp_data_by_object)} oggetti salvati con successo.")
+                        print(f"✓ Dati di presa per {len(grasp_data_by_object)} oggetti (in coordinate camera) salvati con successo.")
                     except Exception as e:
                         print(f"ERRORE durante il salvataggio del file JSON: {e}")
                 else:
                     print("\n--- Nessun dato di presa raccolto, nessun file JSON da salvare. ---")
-                # --- FINE MODIFICA ---
 
 
 
 
                 print("Simulazione completata.")
+
+
 
 
 
