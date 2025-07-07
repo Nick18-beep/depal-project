@@ -233,30 +233,44 @@ def main_simulation():
 
             # --- path della camera -------------------------------------------------
             stereo_cam_left_path = "/Replicator/stereo_cam/stereo_cam_L_Xform/stereo_cam_L"
+            
             cam_prim = stage.GetPrimAtPath(stereo_cam_left_path)
 
 
                     # --- matrice world→camera ---------------------------------------------
                     # 1) local→world (Gf.Matrix4d)
+            simulation_app.update()
             xform_cache = UsdGeom.XformCache(Usd.TimeCode.Default())
             local_to_world_gf = xform_cache.GetLocalToWorldTransform(cam_prim)
 
-
+            
                     # 2) world→camera = inverse(local→world)
             world_to_camera_gf = local_to_world_gf.GetInverse()        # ancora Gf.Matrix4d
 
-
+            print(world_to_camera_gf)
                     # 3) converti in numpy e separa R e t
             world_to_camera_np = np.array(world_to_camera_gf)          # shape (4,4)
             R_world2cam = world_to_camera_np[:3, :3]                   # rotazione 3×3
             t_world2cam = world_to_camera_np[:3,  3]                   # traslazione 3×1
+            R_world2cam = np.array(world_to_camera_gf.ExtractRotationMatrix(), dtype=np.float64)
+            t_world2cam = np.array(world_to_camera_gf.ExtractTranslation(), dtype=np.float64)
+
+            # Estrai il quaternione di trasformazione per l'orientamento
+            Q_world2cam = world_to_camera_gf.ExtractRotation().GetQuat()
 
 
             print("R_world2cam =\n", R_world2cam)
             print("t_world2cam =\n", t_world2cam)
+
+            
             cache = UsdGeom.XformCache(Usd.TimeCode.Default())
             l2w: Gf.Matrix4d = cache.GetLocalToWorldTransform(stage.GetPrimAtPath(stereo_cam_left_path))
             cam_pos = l2w.ExtractTranslation()          # Gf.Vec3d (x,y,z)
+            cam_rot = l2w.ExtractRotation()
+            print("pos camera : ",cam_pos)
+            print("rot camera : ",cam_rot)
+            
+
 
             for _ in range(20):
                 simulation_app.update() 
@@ -306,8 +320,156 @@ def main_simulation():
             # --- FINE INIZIALIZZAZIONE GLOBALE ---
 
 
-            USA_PINZA = True
+            USA_GRIP = True
 
+            if USA_GRIP:
+               
+                selected=None
+
+                if box_spawn_cfg['enable']:
+                    selected = spawned_box_prim_paths
+                if ycb_spawn_cfg['enable']:
+                    selected = spawned_object_prim_paths
+                    
+
+
+                for i, box_prim_path_original in enumerate(selected):
+                    print(f"\n  Processing data collection for box {i+1}")
+                    box_path=None
+                    if box_spawn_cfg['enable']:
+                        box_path = f"/World/SpawnedBasicBoxes/BasicBox_{i}"
+                    if ycb_spawn_cfg['enable']:
+                        box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{i}"
+
+                    
+                    print(f"    Targeting box prim path: {box_path}")
+
+                    # Non è strettamente necessario creare un'istanza qui se `sample_grasp_grid`
+                    # potesse essere una funzione statica o non dipendente dallo stato dell'istanza
+                    # che viene modificato da run(). Per coerenza con il codice precedente:
+                    print("    Creating temporary SurfaceGripperDirectScript instance for sampling grasp grid...")
+                    temp_sampler_instance = grip.SurfaceGripperDirectScript(
+                        target_object_prim_path=box_path,
+                        grasp_offset_from_top=config_grasp_offset, initial_box_prim_path=config_initial_box_path,
+                        box_mass=config_box_mass, absolute_grip_force=config_absolute_grip_force,
+                        grip_force_multiplier=config_grip_force_multiplier, target_lift_height=config_target_lift_height,
+                        target_horizontal_position=config_target_horizontal_position, z_correction_factor=config_z_correction_factor,
+                        max_z_correction_speed_factor=config_max_z_correction_speed_factor, cone_height=config_cone_height,
+                        cone_radius=config_cone_radius, lift_speed_vertical=config_lift_speed_vertical,
+                        move_speed_horizontal=config_move_speed_horizontal, steps_for_cube_to_settle=config_steps_for_cube_to_settle,
+                        steps_grace_period_after_settle=config_steps_grace_period_after_settle,
+                        steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
+                        steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh,
+                        simulation_app=simulation_app
+                    )
+                    cone_positions = temp_sampler_instance.sample_grasp_grid(box_path)
+                    del temp_sampler_instance
+
+                    print(f"    Found {len(cone_positions)} potential grasp positions for box {i+1}.")
+
+                    for pos_idx, position in enumerate(cone_positions):
+                        print(f"\n      Processing grasp attempt {pos_idx+1}/{len(cone_positions)} for box {i+1} at position: {position}")
+
+                        print("      Creating new SurfaceGripperDirectScript instance for this attempt...")
+                        gripper_script_runner_instance = grip.SurfaceGripperDirectScript(
+                            target_object_prim_path=box_path,
+                            grasp_offset_from_top=config_grasp_offset, initial_box_prim_path=config_initial_box_path,
+                            box_mass=config_box_mass, absolute_grip_force=config_absolute_grip_force,
+                            grip_force_multiplier=config_grip_force_multiplier, target_lift_height=config_target_lift_height,
+                            target_horizontal_position=config_target_horizontal_position, z_correction_factor=config_z_correction_factor,
+                            max_z_correction_speed_factor=config_max_z_correction_speed_factor, cone_height=config_cone_height,
+                            cone_radius=config_cone_radius, lift_speed_vertical=config_lift_speed_vertical,
+                            move_speed_horizontal=config_move_speed_horizontal, steps_for_cube_to_settle=config_steps_for_cube_to_settle,
+                            steps_grace_period_after_settle=config_steps_grace_period_after_settle,
+                            steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
+                            steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh,
+                            simulation_app=simulation_app
+                        )
+
+                        print("      Running simulation script for this attempt...")
+                        gripper_script_runner_instance.run(position)
+                        while not gripper_script_runner_instance.is_task_complete():
+                            simulation_app.update()
+                        
+                        print(f"      Simulation complete for attempt {pos_idx+1}.")
+                        print(f"      Grip status code: {gripper_script_runner_instance.grip_status_code}")
+                        # print(f"      Initial cone placement (world): {gripper_script_runner_instance.initial_cone_placement_position_world}")
+                        # print(f"      Initial cone orientation: {gripper_script_runner_instance.initial_cone_orientation}")
+
+                        if gripper_script_runner_instance.initial_cone_placement_position_world is not None:
+                            projection_info = {
+                                'center_world_m': gripper_script_runner_instance.initial_cone_placement_position_world,
+                                'orientation_wxyz': gripper_script_runner_instance.initial_cone_orientation,
+                                'circle_color': gripper_script_runner_instance.grip_status_code,
+                                'z_value': gripper_script_runner_instance.initial_cone_placement_position_world[2],
+                                'box_idx': i, # Opzionale: per debug o info future
+                                'attempt_idx': pos_idx # Opzionale: per debug o info future
+                            }
+                            all_projections_across_all_boxes.append(projection_info)
+                        else:
+                            print(f"      WARNING: initial_cone_placement_position_world is None for attempt {pos_idx+1}, box {i+1}. Skipping projection data collection.")
+                        
+                        stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd") # Se necessario dopo ogni run()
+                        for _ in range (50):
+                            simulation_app.update()
+
+
+                # --- FINE RACCOLTA DATI PER TUTTI I BOX ---
+                simulation_app.update()
+                simulation_app.update()
+
+                if not all_projections_across_all_boxes:
+                    print("\n--- No projection data collected from any box. No image will be generated. ---")
+                elif K_matrix_global is None:
+                    print("\n--- K_matrix globale non disponibile. Impossibile generare l'immagine combinata. ---")
+                else:
+                    print(f"\n--- Preparing to draw {len(all_projections_across_all_boxes)} projections onto a single image ---")
+                    
+                    print("Sorting all collected projections by Z-value...")
+                    all_projections_across_all_boxes.sort(key=lambda p: p['z_value'])
+
+                    print(f"Generating combined image by repeatedly calling project_circle_topdown...")
+                    print(f"Camera height (cam_pos[2]): {cam_pos[2]}") # Assicurati che cam_pos sia definito globalmente
+
+                    for proj_idx, proj_data in enumerate(all_projections_across_all_boxes):
+                        # print(f"\n  Drawing projection {proj_idx+1}/{len(all_projections_across_all_boxes)} (Box {proj_data['box_idx']+1}, Attempt {proj_data['attempt_idx']+1}) on {final_combined_image_path}")
+                        # print(f"    Center: {proj_data['center_world_m']}, Z-value: {proj_data['z_value']:.4f}")
+                        # print(f"    Orientation: {proj_data['orientation_wxyz']}")
+                        # print(f"    Circle Color (Grip Status): {proj_data['circle_color']}")
+                        
+                        generate_image_pick.project_circle_topdown(
+                            radius_m          = config_cone_radius, # Assicurati che config_cone_radius sia definito globalmente
+                            center_world_m    = proj_data['center_world_m'],
+                            orientation_wxyz  = proj_data['orientation_wxyz'],
+                            camera_height_m   = cam_pos[2],
+                                    K_matrix_3x3      = K_matrix_global,
+                            image_width       = 1280, # O da configurazione
+                            image_height      = 720,  # O da configurazione
+                            output_image_path = final_combined_image_path, # SEMPRE LO STESSO PATH GLOBALE
+                            roll_deg          = 90.0, # O da configurazione
+                            circle_color      = proj_data['circle_color'],
+                        )
+                        # print(f"    Projection {proj_idx+1} drawn.")
+                    
+                    print(f"\n--- Final combined image saved to: {final_combined_image_path} ---")
+
+                # print("\n--- All boxes processed, reloading stage ---") # Se necessario alla fine di tutto
+                # stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+
+            else:
+                print("Box insufficienti o box spawning disabilitato.")
+
+ 
+            from omni.isaac.core import SimulationContext
+            from omni.isaac.core import World
+            
+            
+            stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+            w=World()
+            robot ,target_prim = pinza.setup_scene( box_path ,simulation_app)
+
+            USA_PINZA = True
+        
 
 
 
@@ -317,16 +479,11 @@ def main_simulation():
                 # MODIFICA: Inizializza un DIZIONARIO per raccogliere i dati raggruppati per oggetto.
                 grasp_data_by_object = {}
 
-
+                
                 # MODIFICA: Ottieni il quaternione di rotazione dalla matrice R_world2cam.
                 # Questo quaternione rappresenta l'orientamento della camera rispetto al mondo
                 # e ci servirà per trasformare l'orientamento del gripper.
-                rot_matrix_gf = Gf.Matrix3d(
-                    R_world2cam[0,0], R_world2cam[0,1], R_world2cam[0,2],
-                    R_world2cam[1,0], R_world2cam[1,1], R_world2cam[1,2],
-                    R_world2cam[2,0], R_world2cam[2,1], R_world2cam[2,2]
-                )
-                Q_cam_world = rot_matrix_gf.ExtractRotation().GetQuat()
+                
 
 
 
@@ -365,7 +522,7 @@ def main_simulation():
 
                     target_prim_path = box_path
                    
-                    if i==0:
+                    if i==-1:
                         robot ,target_prim = pinza.setup_scene( target_prim_path ,simulation_app)
                         print("robot creato")
                        
@@ -451,33 +608,35 @@ def main_simulation():
 
 
 
-                        # --- MODIFICA: Trasformazione coordinate da World a Camera SINISTRA ---
-                        # 1. Trasforma la POSIZIONE
-                        position_in_cam_coords = R_world2cam @ first_pos + t_world2cam
+                        position_in_cam_coords = R_world2cam @ fsm.grip_position + t_world2cam
+                       
+                        # 2. Trasforma l'ORIENTAMENTO dal mondo alla camera
+                        # Gestisci il tipo di dato per evitare errori (float32 vs double)
+                        w = float(fsm.grip_orientation[0])
+                        x = float(fsm.grip_orientation[1])
+                        y = float(fsm.grip_orientation[2])
+                        z = float(fsm.grip_orientation[3])
+                        gripper_quat_world = Gf.Quatd(w, Gf.Vec3d(x, y, z))
 
+                        # Esegui la trasformazione dell'orientamento
+                        gripper_quat_cam = Q_world2cam * gripper_quat_world   
 
-                        # 2. Trasforma l'ORIENTAMENTO (quaternione)
-                        gripper_quat_world = Gf.Quatd(first_quat[0], Gf.Vec3d(first_quat[1], first_quat[2], first_quat[3]))
-                        gripper_quat_cam = Q_cam_world * gripper_quat_world # Applica la rotazione della camera
-                        
-                        # 3. Riconverti in un formato salvabile (lista)
-                        position_list = position_in_cam_coords.tolist()
-                        orientation_quat_wxyz = [
-                            gripper_quat_cam.GetReal(), 
+                        # 3. Prepara i dati finali per il salvataggio
+                        final_position_list = position_in_cam_coords.tolist()
+                        final_orientation_list = [
+                            gripper_quat_cam.GetReal(),
                             *gripper_quat_cam.GetImaginary()
                         ]
-                        # --- FINE MODIFICA ---
 
-
+                        # 4. Determina il successo della presa
                         is_success = "SUCCESS" in result.name.upper()
-                        
-                        # Crea il dizionario usando le nuove coordinate trasformate
-                        pose_result_data = {
-                            "gripper_position": position_list,
-                            "gripper_orientation_quat_wxyz": orientation_quat_wxyz,
-                            "success": is_success
-                        }
 
+                        # 5. Crea il dizionario usando i dati TRASFORMATI
+                        pose_result_data = {
+                            "gripper_position": fsm.grip_position.tolist(),
+                            "gripper_orientation_quat_wxyz": fsm.grip_orientation.tolist(),
+                            "success": is_success
+}
 
                         grasp_data_by_object.setdefault(target_prim_path, []).append(pose_result_data)
 

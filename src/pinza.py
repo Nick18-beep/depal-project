@@ -15,7 +15,7 @@ from enum import Enum, auto
 # ------------------------------------------------------------------------------
 
 
-NUM_CANDIDATE_POSES     = 5
+NUM_CANDIDATE_POSES     = 10
 GRIPPER_APPROACH_OFFSET = 1.5
 MIN_SAFE_HEIGHT_Z       = 0.45
 PAUSE_DURATION_SEC      = 0.25
@@ -286,6 +286,8 @@ class GraspingFSM:
         self.current_result = GraspResult.FAILURE # Default per l'esperimento
         self.results_history = []
         self._gripper_made_contact = False
+        self.grip_position=None
+        self.grip_orientation=None
 
 
         # --- Variabili di Supporto ---
@@ -401,6 +403,11 @@ class GraspingFSM:
         
         ray_dir = ray_dir_vec / np.linalg.norm(ray_dir_vec)
         dist_to_box = ray_obb_intersection(gripper_pos, ray_dir, **self.obb_info)
+
+        #anche quando mi avvicino tengo la pinza sempre aperta
+        initial_pos = np.zeros(self.robot.num_dof)
+        initial_pos[self.leader_joint_idx] = GRIPPER_OPEN_POS
+        self.robot.set_joint_positions(positions=initial_pos)
         
         if dist_to_box is not None and dist_to_box <= STOP_BEFORE_DIST:
             ### STABILITÀ ###
@@ -414,6 +421,9 @@ class GraspingFSM:
 
 
     def _handle_grasp(self):
+
+        self.grip_position,self.grip_orientation =self.robot.get_world_pose()
+        
         target_positions = np.zeros(self.robot.num_dof)
         target_positions[self.leader_joint_idx] = GRIPPER_CLOSED_POS
         target_positions[self.follower_joint_idx] = -GRIPPER_CLOSED_POS
