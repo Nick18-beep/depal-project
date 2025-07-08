@@ -10,6 +10,8 @@ import json
 import shutil
 
 
+
+
 def main_simulation():
     simulation_app = None
    
@@ -320,7 +322,7 @@ def main_simulation():
             # --- FINE INIZIALIZZAZIONE GLOBALE ---
 
 
-            USA_GRIP = True
+            USA_GRIP = False
 
             if USA_GRIP:
                
@@ -455,6 +457,7 @@ def main_simulation():
 
                 # print("\n--- All boxes processed, reloading stage ---") # Se necessario alla fine di tutto
                 # stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+                
 
             else:
                 print("Box insufficienti o box spawning disabilitato.")
@@ -626,33 +629,50 @@ def main_simulation():
 
 
 
-                        position_in_cam_coords = R_world2cam @ fsm.grip_position + t_world2cam
+                        #position_in_cam_coords = R_world2cam @ fsm.grip_position + t_world2cam
                        
                         # 2. Trasforma l'ORIENTAMENTO dal mondo alla camera
                         # Gestisci il tipo di dato per evitare errori (float32 vs double)
-                        w = float(fsm.grip_orientation[0])
-                        x = float(fsm.grip_orientation[1])
-                        y = float(fsm.grip_orientation[2])
-                        z = float(fsm.grip_orientation[3])
-                        gripper_quat_world = Gf.Quatd(w, Gf.Vec3d(x, y, z))
+                        #w = float(fsm.grip_orientation[0])
+                       # x = float(fsm.grip_orientation[1])
+                        #y = float(fsm.grip_orientation[2])
+                        #z = float(fsm.grip_orientation[3])
+                        #gripper_quat_world = Gf.Quatd(w, Gf.Vec3d(x, y, z))
 
                         # Esegui la trasformazione dell'orientamento
-                        gripper_quat_cam = Q_world2cam * gripper_quat_world   
+                        #gripper_quat_cam = Q_world2cam * gripper_quat_world   
 
                         # 3. Prepara i dati finali per il salvataggio
-                        final_position_list = position_in_cam_coords.tolist()
-                        final_orientation_list = [
-                            gripper_quat_cam.GetReal(),
-                            *gripper_quat_cam.GetImaginary()
-                        ]
+                        #final_position_list = position_in_cam_coords.tolist()
+                        #final_orientation_list = [
+                        #    gripper_quat_cam.GetReal(),
+                       #     *gripper_quat_cam.GetImaginary()
+                        #]
 
                         # 4. Determina il successo della presa
                         is_success = "SUCCESS" in result.name.upper()
 
+                        # Prova a convertire la posizione
+                        try:
+                            # Tenta di eseguire l'operazione che potrebbe fallire
+                            position = fsm.grip_position.tolist()
+                        except :
+                            # Se .tolist() non esiste, viene eseguito questo blocco
+                            position = [-1, -1, -1] # Assegna un valore di errore
+                            is_success = False
+
+                        # Fai lo stesso per l'orientamento
+                        try:
+                            orientation = fsm.grip_orientation.tolist()
+                        except :
+                            orientation = [-1, -1, -1, -1]
+                            is_success = False # Se anche solo uno fallisce, il risultato non è un successo
+
+
                         # 5. Crea il dizionario usando i dati TRASFORMATI
                         pose_result_data = {
-                            "gripper_position": fsm.grip_position.tolist(),
-                            "gripper_orientation_quat_wxyz": fsm.grip_orientation.tolist(),
+                            "gripper_position": position,
+                            "gripper_orientation_quat_wxyz": orientation,
                             "success": is_success
 }
 
@@ -777,3 +797,7 @@ def main_simulation():
    
 if __name__ == "__main__":
     main_simulation()
+
+
+
+    
