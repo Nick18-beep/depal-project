@@ -462,10 +462,17 @@ def main_simulation():
  
             from omni.isaac.core import SimulationContext
             from omni.isaac.core import World
-            
-            
+
+            box_path=None
+            if box_spawn_cfg['enable']:
+                        box_path = f"/World/SpawnedBasicBoxes/BasicBox_{0}"
+            if ycb_spawn_cfg['enable']:
+                        box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{0}"
+
             stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
             w=World()
+            for i in range(10):
+                simulation_app.update()
             robot ,target_prim = pinza.setup_scene( box_path ,simulation_app)
 
             USA_PINZA = True
@@ -542,10 +549,12 @@ def main_simulation():
                     print("le posizioni che testo sono: ",len(poses))
                     
 
-
+                    import time 
+                   
+                    time_out = 10 # sedondi
 
                     for p_idx, p in enumerate(poses):
-                       
+                        start_time = time.time()
                         print(f"\n--- Inizio tentativo di presa {p_idx + 1}/{len(poses)} per l'oggetto {target_prim_path} ---")
 
 
@@ -594,6 +603,15 @@ def main_simulation():
                         while simulation_app.is_running() and not fsm.is_finished():
                             simulation_app.update()
                             fsm.step()
+                             # Controlla se il tempo è scaduto
+                            if time.time() - start_time > time_out:
+                                print(f"!!! Timeout di {time_out} secondi raggiunto. Imposto il risultato su FAILURE. !!!")
+                                
+                                # Imposta manualmente lo stato e il risultato come richiesto
+                                fsm.state = pinza.State.FINISH
+                                fsm.current_result = pinza.GraspResult.FAILURE
+                                
+                               
                             
                             
 
