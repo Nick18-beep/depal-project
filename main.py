@@ -8,14 +8,13 @@ import yaml
 import sys 
 import json
 import shutil
+from flask import Flask, jsonify, send_from_directory, request
+import threading
 
 
-
-
-def main_simulation():
-    simulation_app = None
+simulation_app = None
    
-    def load_configuration(config_file_path):
+def load_configuration(config_file_path):
         """Carica la configurazione YAML."""
         if not os.path.exists(config_file_path):
             raise FileNotFoundError(f"File di configurazione '{os.path.basename(config_file_path)}' non trovato.")
@@ -24,17 +23,17 @@ def main_simulation():
         print(f"Configurazione caricata da '{os.path.basename(config_file_path)}'.")
         return config
    
-    current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_file_path = os.path.join(current_script_dir, "config.yaml")
-    config = load_configuration(config_file_path)
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+config_file_path = os.path.join(current_script_dir, "config.yaml")
+config = load_configuration(config_file_path)
    
-    if current_script_dir not in sys.path:
+if current_script_dir not in sys.path:
         sys.path.append(current_script_dir)
         print(f"Aggiunta directory '{current_script_dir}' a sys.path per import moduli locali.")
    
-    def initialize_simulation_app_internal(sim_setup_config):
+def initialize_simulation_app_internal(sim_setup_config):
         """Inizializza SimulationApp."""
-        nonlocal simulation_app
+        global simulation_app
         SETUP = {"headless": sim_setup_config.get('headless', True)}
         if 'renderer' in sim_setup_config and sim_setup_config['renderer']:
             SETUP['renderer'] = sim_setup_config['renderer']
@@ -42,9 +41,8 @@ def main_simulation():
         print("SimulationApp inizializzata.")
         return simulation_app
    
-    simulation_app = initialize_simulation_app_internal(config['simulation_setup'])
-   
-    try:
+simulation_app = initialize_simulation_app_internal(config['simulation_setup'])
+try:
         import omni.usd
         import omni.timeline
         from pxr import UsdGeom, Gf
@@ -70,11 +68,17 @@ def main_simulation():
         from depal_utils import generate_image_pick
 
         print("Moduli Omni, PXR, SRC e Utils importati con successo post-inizializzazione app.")
-    except ImportError as e:
+except ImportError as e:
         print(f"ERRORE CRITICO: Importazione moduli fallita dopo inizializzazione SimulationApp: {e}")
         traceback.print_exc()
         if simulation_app: simulation_app.close()
-        return 
+         
+
+
+def main_simulation():
+    
+   
+    
    
     try:
         paths_cfg = config['paths']
@@ -95,6 +99,9 @@ def main_simulation():
         
         for img_idx in range(1, num_images_to_gen + 1):
             wall_activated=False
+
+            USA_GRIP = False
+            USA_PINZA = False
 
             print(f"\n--- Inizio generazione immagine {img_idx}/{num_images_to_gen} ---")
                
@@ -322,7 +329,7 @@ def main_simulation():
             # --- FINE INIZIALIZZAZIONE GLOBALE ---
 
 
-            USA_GRIP = False
+           # USA_GRIP = False
 
             if USA_GRIP:
                
@@ -463,27 +470,28 @@ def main_simulation():
                 print("Box insufficienti o box spawning disabilitato.")
 
  
-            from omni.isaac.core import SimulationContext
-            from omni.isaac.core import World
+            
 
-            box_path=None
-            if box_spawn_cfg['enable']:
-                        box_path = f"/World/SpawnedBasicBoxes/BasicBox_{0}"
-            if ycb_spawn_cfg['enable']:
-                        box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{0}"
-
-            stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
-            w=World()
-            for i in range(10):
-                simulation_app.update()
-            robot ,target_prim = pinza.setup_scene( box_path ,simulation_app)
-
-            USA_PINZA = True
+           # USA_PINZA = True
         
 
 
 
             if USA_PINZA:
+                from omni.isaac.core import SimulationContext
+                from omni.isaac.core import World
+
+                box_path=None
+                if box_spawn_cfg['enable']:
+                            box_path = f"/World/SpawnedBasicBoxes/BasicBox_{0}"
+                if ycb_spawn_cfg['enable']:
+                            box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{0}"
+
+                stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+                w=World()
+                for i in range(10):
+                    simulation_app.update()
+                robot ,target_prim = pinza.setup_scene( box_path ,simulation_app)
 
 
                 # MODIFICA: Inizializza un DIZIONARIO per raccogliere i dati raggruppati per oggetto.
@@ -554,7 +562,7 @@ def main_simulation():
 
                     import time 
                    
-                    time_out = 10 # sedondi
+                    time_out = 10 # secondi
 
                     for p_idx, p in enumerate(poses):
                         start_time = time.time()
@@ -770,16 +778,18 @@ def main_simulation():
 
 
 
-
+        
 
             
             print(f"--- Generazione immagine {img_idx}/{num_images_to_gen} completata ---")
            
         print(f"\nGenerazione di tutte le {num_images_to_gen} immagini completata.")
 
-        if sim_setup_cfg["headless"] == False:
-            while True:
-                simulation_app.update()
+       
+
+       # if sim_setup_cfg["headless"] == False:
+            #while True:
+             #   simulation_app.update()
    
     except FileNotFoundError as fnf_e: 
         print(str(fnf_e))
@@ -790,14 +800,147 @@ def main_simulation():
     finally:
         if simulation_app:
             print("Chiusura SimulationApp...")
-            simulation_app.close()
+            #simulation_app.close()
             print("SimulationApp chiusa.")
         else:
             print("SimulationApp non inizializzata o fallita prima dell'inizializzazione; nessuna chiusura esplicita necessaria.")
    
-if __name__ == "__main__":
-    main_simulation()
 
 
+import queue
 
+# Crea l'applicazione Flask
+app = Flask(__name__)
+
+# Crea la coda per la comunicazione
+task_queue = queue.Queue()
+
+# NUOVO: Flag per tracciare lo stato della simulazione
+simulation_in_progress = False
+# --- DA MODIFICARE: Percorso della cartella principale dei file di output ---
+SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIRECTORY = os.path.join(SCRIPT_DIRECTORY, 'output', 'img1')
+
+@app.route("/")
+def index():
+    """Endpoint principale che mostra lo stato e gli endpoint disponibili."""
+    return jsonify({
+        "status": "server_running",
+        "message": "Benvenuto nel server di simulazione Isaac Sim.",
+        "endpoints": {
+            "start_simulation": "POST /generate_scene",
+            "list_files": "GET /list_files", # MODIFICATO
+            "get_document": "GET /get_document/<path:filename>"
+        }
+    })
+
+@app.route("/generate_scene", methods=['POST'])
+def start_simulation_endpoint():
+    """
+    Endpoint per avviare la simulazione.
+    Controlla il flag 'simulation_in_progress' prima di accettare una nuova richiesta.
+    """
+    global simulation_in_progress
     
+    if simulation_in_progress:
+        print("Richiesta ricevuta ma una simulazione è già in corso. Richiesta ignorata.")
+        return jsonify({
+            "status": "error",
+            "message": "Simulazione già in corso. Riprova più tardi."
+        }), 409
+    else:
+        print("Richiesta ricevuta a /generate_scene. Aggiunto compito alla coda.")
+        task_queue.put("start_simulation")
+        return jsonify({
+            "status": "success", 
+            "message": "Comando di avvio simulazione inviato."
+        })
+
+# --- ENDPOINT MODIFICATO ---
+@app.route("/list_files", methods=['GET'])
+def list_files():
+    """
+    MODIFICATO: Scansiona la directory di output e restituisce un elenco JSON
+    di tutti i file disponibili, con uno stato di successo.
+    """
+    if not os.path.isdir(OUTPUT_DIRECTORY):
+        print(f"Errore: La directory di output '{OUTPUT_DIRECTORY}' non è stata trovata.")
+        return jsonify({"status": "error", "message": "Directory dei risultati non trovata."}), 404
+
+    file_list = []
+    # os.walk attraversa ricorsivamente la directory
+    for root, _, files in os.walk(OUTPUT_DIRECTORY):
+        for file in files:
+            # Calcola il percorso relativo per l'URL
+            relative_path = os.path.relpath(os.path.join(root, file), OUTPUT_DIRECTORY)
+            # Usa lo slash (/) come separatore per compatibilità URL
+            file_list.append(relative_path.replace(os.path.sep, '/'))
+    
+    print(f"Trovati {len(file_list)} file. Invio dell'elenco al client.")
+    # MODIFICATO: Aggiunto "status": "success" per compatibilità con il client
+    return jsonify({"status": "success", "files": file_list})
+
+
+# --- NUOVO ENDPOINT ---
+@app.route("/get_document/<path:filename>", methods=['GET'])
+def get_document(filename):
+    """
+    Invia un singolo file richiesto dalla directory di output.
+    Utilizza send_from_directory per la massima sicurezza.
+    """
+    print(f"Richiesta ricevuta per il file: {filename}")
+    try:
+        return send_from_directory(
+            OUTPUT_DIRECTORY, 
+            filename, 
+            as_attachment=True
+        )
+    except FileNotFoundError:
+        print(f"Errore: file non trovato - {filename}")
+        return jsonify({"error": "File non trovato"}), 404
+
+
+# =====================================================================================
+# BLOCCO MAIN MODIFICATO
+# =====================================================================================
+if __name__ == "__main__":
+    # Avvia il server Flask in background
+    server_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000, debug=False), daemon=True)
+    server_thread.start()
+    print("\n--- SERVER FLASK AVVIATO IN BACKGROUND su http://127.0.0.1:5000 ---")
+    print("--- AVVIO LOOP DI SIMULAZIONE PRINCIPALE. In attesa di comandi... ---")
+    
+    try:
+        while True:
+            simulation_app.update()
+
+            try:
+                task = task_queue.get_nowait()
+
+                if task == "start_simulation":
+                    # MODIFICATO: Aggiorna il flag prima e dopo l'esecuzione
+                    print("\n>>> Comando 'start_simulation' ricevuto. Esecuzione...")
+                    
+                    # Imposta il flag per bloccare nuove richieste
+                    simulation_in_progress = True
+                    
+                    main_simulation() # Esegui la funzione
+                    
+                    # Reimposta il flag per accettare nuove richieste
+                    simulation_in_progress = False
+                    
+                    print(">>> Esecuzione di main_simulation() completata. In attesa di nuovi comandi.")
+
+            except queue.Empty:
+                pass
+                
+            time.sleep(0.01)
+
+    except KeyboardInterrupt:
+        print("\n--- Rilevato KeyboardInterrupt (CTRL+C). Chiusura in corso... ---")
+    finally:
+        if simulation_app:
+            print("Chiusura di SimulationApp...")
+            simulation_app.close()
+            print("SimulationApp chiusa con successo.")
+        print("Programma terminato.")
