@@ -73,13 +73,38 @@ except ImportError as e:
         traceback.print_exc()
         if simulation_app: simulation_app.close()
          
+def clean_right_output(root_dir, keep=("rgb", "camera_params")):
+                """
+                Rimuove tutto ciò che c’è in <root_dir> tranne le
+                sottocartelle elencate in *keep*.
+
+                Parameters
+                ----------
+                root_dir : str
+                    Percorso alla cartella della camera “right”, es. f"{output_dir_root}/right"
+                keep : tuple[str]
+                    Sottodirectory da conservare.
+                """
+                for entry in os.listdir(root_dir):
+                    if entry in keep:
+                        continue                         # la teniamo
+                    path = os.path.join(root_dir, entry)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)              # cancella cartella e contenuto
+                    else:
+                        os.remove(path)                  # cancella file singolo
+
+def main_simulation(config_path=None):
+    global config  # 👈 Dichiara che vuoi modificare la 'config' globale
+
+    # 1. Logica corretta: carica se il percorso NON è None
+    if config_path is not None:
+        print(f"Sovrascrivo la configurazione globale dal percorso: {config_path}")
+        config = load_configuration(config_path) # Ora questo modifica la variabile globale
+    else:
+        print("Nessun config_path fornito, uso la configurazione globale esistente.")
 
 
-def main_simulation():
-    
-   
-    
-   
     try:
         paths_cfg = config['paths']
         sim_setup_cfg = config['simulation_setup']
@@ -748,26 +773,7 @@ def main_simulation():
 
          
 
-            def clean_right_output(root_dir, keep=("rgb", "camera_params")):
-                """
-                Rimuove tutto ciò che c’è in <root_dir> tranne le
-                sottocartelle elencate in *keep*.
-
-                Parameters
-                ----------
-                root_dir : str
-                    Percorso alla cartella della camera “right”, es. f"{output_dir_root}/right"
-                keep : tuple[str]
-                    Sottodirectory da conservare.
-                """
-                for entry in os.listdir(root_dir):
-                    if entry in keep:
-                        continue                         # la teniamo
-                    path = os.path.join(root_dir, entry)
-                    if os.path.isdir(path):
-                        shutil.rmtree(path)              # cancella cartella e contenuto
-                    else:
-                        os.remove(path)                  # cancella file singolo
+            
             for i in range(2):
                 simulation_app.update() 
             right_dir = os.path.join(image_output_directory, "right")
@@ -815,11 +821,16 @@ app = Flask(__name__)
 # Crea la coda per la comunicazione
 task_queue = queue.Queue()
 
-# NUOVO: Flag per tracciare lo stato della simulazione
+# Flag per tracciare lo stato della simulazione
 simulation_in_progress = False
+
 # --- DA MODIFICARE: Percorso della cartella principale dei file di output ---
 SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIRECTORY = os.path.join(SCRIPT_DIRECTORY, 'output', 'img1')
+
+# ==============================================================================
+# ENDPOINT API
+# ==============================================================================
 
 @app.route("/")
 def index():
@@ -828,119 +839,172 @@ def index():
         "status": "server_running",
         "message": "Benvenuto nel server di simulazione Isaac Sim.",
         "endpoints": {
-            "start_simulation": "POST /generate_scene",
-            "list_files": "GET /list_files", # MODIFICATO
+            "generate_scene": "POST /generate_scene",
+            "regenerate_data": "POST /regenerate_data",
+            "list_files": "GET /list_files",
             "get_document": "GET /get_document/<path:filename>"
         }
     })
 
+# --- ENDPOINT MODIFICATO ---
 @app.route("/generate_scene", methods=['POST'])
 def start_simulation_endpoint():
     """
-    Endpoint per avviare la simulazione.
-    Controlla il flag 'simulation_in_progress' prima di accettare una nuova richiesta.
+    Endpoint per avviare una NUOVA simulazione.
+    Accetta sia JSON (senza config) sia multipart/form-data (con config.yaml).
     """
     global simulation_in_progress
-    
     if simulation_in_progress:
-        print("Richiesta ricevuta ma una simulazione è già in corso. Richiesta ignorata.")
-        return jsonify({
-            "status": "error",
-            "message": "Simulazione già in corso. Riprova più tardi."
-        }), 409
-    else:
-        print("Richiesta ricevuta a /generate_scene. Aggiunto compito alla coda.")
-        task_queue.put("start_simulation")
-        return jsonify({
-            "status": "success", 
-            "message": "Comando di avvio simulazione inviato."
-        })
+        return jsonify({"status": "error", "message": "Simulazione già in corso."}), 409
+
+    task = {'type': 'start_simulation'}
+    
+    try:
+        # Controlla se è stata inviata una richiesta multipart (con file)
+        if 'config_file' in request.files:
+            print("Richiesta ricevuta a /generate_scene (con config.yaml).")
+            # Legge le opzioni dal form
+            options_str = request.form.get('options')
+            task['options'] = json.loads(options_str) if options_str else []
+            
+            # Legge e salva il file di configurazione
+            config_file = request.files['config_file']
+            save_path = os.path.join(OUTPUT_DIRECTORY, 'active_config.yaml')
+            os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+            config_file.save(save_path)
+            
+            task['config_path'] = save_path
+            print(f"File di configurazione salvato in: {save_path}")
+
+        # Altrimenti, si aspetta una richiesta JSON standard
+        else:
+            print("Richiesta ricevuta a /generate_scene (senza config.yaml).")
+            data = request.get_json()
+            task['options'] = data.get('options', [])
+            task['config_path'] = None
+
+        task_queue.put(task)
+        return jsonify({"status": "success", "message": "Comando di avvio simulazione inviato."})
+
+    except Exception as e:
+        print(f"Errore durante l'elaborazione della richiesta /generate_scene: {e}")
+        return jsonify({"status": "error", "message": f"Errore interno del server: {e}"}), 500
+
 
 # --- ENDPOINT MODIFICATO ---
+@app.route("/regenerate_data", methods=['POST'])
+def regenerate_data_endpoint():
+    """
+    Endpoint per avviare la RIGENERAZIONE dei dati.
+    Accetta solo richieste JSON con le opzioni.
+    """
+    global simulation_in_progress
+    if simulation_in_progress:
+        return jsonify({"status": "error", "message": "Simulazione già in corso."}), 409
+
+    try:
+        print("Richiesta ricevuta a /regenerate_data.")
+        data = request.get_json()
+        task = {
+            'type': 'regenerate_data',
+            'options': data.get('options', [])
+        }
+        task_queue.put(task)
+        return jsonify({"status": "success", "message": "Comando di rigenerazione dati inviato."})
+    except Exception as e:
+        print(f"Errore durante l'elaborazione della richiesta /regenerate_data: {e}")
+        return jsonify({"status": "error", "message": f"Errore interno del server: {e}"}), 500
+
+
 @app.route("/list_files", methods=['GET'])
 def list_files():
-    """
-    MODIFICATO: Scansiona la directory di output e restituisce un elenco JSON
-    di tutti i file disponibili, con uno stato di successo.
-    """
+    """Scansiona la directory di output e restituisce un elenco JSON di file."""
     if not os.path.isdir(OUTPUT_DIRECTORY):
-        print(f"Errore: La directory di output '{OUTPUT_DIRECTORY}' non è stata trovata.")
         return jsonify({"status": "error", "message": "Directory dei risultati non trovata."}), 404
 
     file_list = []
-    # os.walk attraversa ricorsivamente la directory
     for root, _, files in os.walk(OUTPUT_DIRECTORY):
         for file in files:
-            # Calcola il percorso relativo per l'URL
             relative_path = os.path.relpath(os.path.join(root, file), OUTPUT_DIRECTORY)
-            # Usa lo slash (/) come separatore per compatibilità URL
             file_list.append(relative_path.replace(os.path.sep, '/'))
     
-    print(f"Trovati {len(file_list)} file. Invio dell'elenco al client.")
-    # MODIFICATO: Aggiunto "status": "success" per compatibilità con il client
     return jsonify({"status": "success", "files": file_list})
 
 
-# --- NUOVO ENDPOINT ---
 @app.route("/get_document/<path:filename>", methods=['GET'])
 def get_document(filename):
-    """
-    Invia un singolo file richiesto dalla directory di output.
-    Utilizza send_from_directory per la massima sicurezza.
-    """
-    print(f"Richiesta ricevuta per il file: {filename}")
+    """Invia un singolo file richiesto dalla directory di output."""
     try:
-        return send_from_directory(
-            OUTPUT_DIRECTORY, 
-            filename, 
-            as_attachment=True
-        )
+        return send_from_directory(OUTPUT_DIRECTORY, filename, as_attachment=True)
     except FileNotFoundError:
-        print(f"Errore: file non trovato - {filename}")
         return jsonify({"error": "File non trovato"}), 404
 
 
-# =====================================================================================
+# ==============================================================================
 # BLOCCO MAIN MODIFICATO
-# =====================================================================================
+# ==============================================================================
 if __name__ == "__main__":
-    # Avvia il server Flask in background
     server_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000, debug=False), daemon=True)
     server_thread.start()
     print("\n--- SERVER FLASK AVVIATO IN BACKGROUND su http://127.0.0.1:5000 ---")
     print("--- AVVIO LOOP DI SIMULAZIONE PRINCIPALE. In attesa di comandi... ---")
     
+    # --- ASSUMENDO CHE simulation_app SIA GIÀ DEFINITA QUI ---
+    # simulation_app = SimulationApp(...) 
+    
     try:
         while True:
-            simulation_app.update()
+            # Mantieni aggiornata l'app di simulazione
+            # simulation_app.update() 
 
             try:
                 task = task_queue.get_nowait()
+                
+                # --- BLOCCO DI GESTIONE TASK MODIFICATO ---
+                simulation_in_progress = True  # Blocca nuove richieste
 
-                if task == "start_simulation":
-                    # MODIFICATO: Aggiorna il flag prima e dopo l'esecuzione
-                    print("\n>>> Comando 'start_simulation' ricevuto. Esecuzione...")
+                task_type = task.get('type')
+                options = task.get('options', []) # Opzioni selezionate (es. ['rgb', 'depth'])
+                
+                print(f"\n>>> Comando '{task_type}' ricevuto con opzioni: {options}")
+
+                if task_type == "start_simulation":
+                    config_path = task.get('config_path') # Può essere None
+                    if config_path:
+                        print(f"Utilizzando il file di configurazione: {config_path}")
                     
-                    # Imposta il flag per bloccare nuove richieste
-                    simulation_in_progress = True
+                    # ‼️ DEVI MODIFICARE LA TUA FUNZIONE PER ACCETTARE QUESTI PARAMETRI ‼️
+                    # Esempio: main_simulation(options, config_path)
+                    main_simulation(config_path) 
+                    print(">>> Esecuzione di main_simulation() completata.")
+
+                elif task_type == "regenerate_data":
+                    # ‼️ DEVI MODIFICARE LA TUA LOGICA PER USARE LE OPZIONI ‼️
+                    # Esempio: usare `options` per decidere quali annotatori attivare
+                    timeline = omni.timeline.get_timeline_interface()
+                    image_output_directory = os.path.join(current_script_dir, config['paths']['output_replicator_dir_base'], f"img{1}")
                     
-                    main_simulation() # Esegui la funzione
+                    # Qui dovresti usare `options` per configurare il replicatore
+                    # Ad esempio, attivando/disattivando annotatori prima di lanciare la generazione
+                    replicator_utils.run_replicator_data_generation(...)
                     
-                    # Reimposta il flag per accettare nuove richieste
-                    simulation_in_progress = False
-                    
-                    print(">>> Esecuzione di main_simulation() completata. In attesa di nuovi comandi.")
+                    rep.orchestrator.set_capture_on_play(False)
+                    right_dir = os.path.join(image_output_directory, "right")
+                    clean_right_output(right_dir)
+                    print(">>> Esecuzione di rigenerazione dati completata.")
+
+                simulation_in_progress = False  # Sblocca per nuove richieste
+                print(">>> In attesa di nuovi comandi.")
 
             except queue.Empty:
                 pass
-                
-            time.sleep(0.01)
+            
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
         print("\n--- Rilevato KeyboardInterrupt (CTRL+C). Chiusura in corso... ---")
     finally:
-        if simulation_app:
-            print("Chiusura di SimulationApp...")
-            simulation_app.close()
-            print("SimulationApp chiusa con successo.")
+        # --- Il tuo codice di cleanup qui ---
+        # if simulation_app:
+        #     simulation_app.close()
         print("Programma terminato.")
