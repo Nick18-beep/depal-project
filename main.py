@@ -50,6 +50,7 @@ try:
         import omni.replicator.core as rep
         import carb
         from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdPhysics, UsdShade, Usd
+        from omni.isaac.core import World
    
         import src.material_creator as material_creator_module
         import src.scene_creator as scene_creator_module
@@ -94,143 +95,12 @@ def clean_right_output(root_dir, keep=("rgb", "camera_params")):
                     else:
                         os.remove(path)                  # cancella file singolo
 
-def main_simulation(config_path=None):
-    global config  # 👈 Dichiara che vuoi modificare la 'config' globale
-
-    # 1. Logica corretta: carica se il percorso NON è None
-    if config_path is not None:
-        print(f"Sovrascrivo la configurazione globale dal percorso: {config_path}")
-        config = load_configuration(config_path) # Ora questo modifica la variabile globale
-    else:
-        print("Nessun config_path fornito, uso la configurazione globale esistente.")
 
 
-    try:
-        paths_cfg = config['paths']
-        sim_setup_cfg = config['simulation_setup']
-        asset_spawn_cfg = config['asset_spawner']
-        box_spawn_cfg = config['box_spawner'] 
-        ycb_spawn_cfg = config.get('object_creator_ycb', {}) 
-        material_creator_cfg = config.get('material_creator',{})
-        probability_activation_wall = config["invisible_wall_during_fall"]["probability_activation"]
-        stereo_cam_cfg =config["stereo_camera_setup"]
-        
-        
-
-        scene_origin_np = np.array(asset_spawn_cfg.get('scene_origin_xyz', [0.0, 0.0, 0.0]))
-        material_base_folder_str = paths_cfg['base_materials_usd'] 
-        num_images_to_gen = sim_setup_cfg.get('num_images_to_generate', 1)
-        texture_dir_abs = os.path.abspath(os.path.join(current_script_dir, paths_cfg['texture_folder_relative']))
-        
-        for img_idx in range(1, num_images_to_gen + 1):
-            wall_activated=False
-
-            USA_GRIP = False
-            USA_PINZA = False
-
-            print(f"\n--- Inizio generazione immagine {img_idx}/{num_images_to_gen} ---")
-               
-            stage = scene_setup_utils.setup_new_scene_for_image(
-                simulation_app, omni.usd, img_idx, num_images_to_gen
-            )
-           
-               
-            pbr_components, pbr_direct_mat_paths = scene_setup_utils.create_scene_materials(
-                stage, simulation_app, material_creator_module, texture_dir_abs, material_base_folder_str,material_creator_cfg
-            )
-
-            scene_setup_utils.setup_scene_floor(
-                stage, scene_creator_module, paths_cfg['floor_prim_usd'], pbr_components
-            )
-               
-            timeline = omni.timeline.get_timeline_interface()
-            timeline.play() 
-               
-            scene_setup_utils.setup_scene_lighting(
-                stage, light_creator_module, config['light_creator'], paths_cfg['light_base_usd']
-            )
-            
-            if asset_spawn_cfg.get('enable', True): 
-                scene_setup_utils.spawn_main_asset(
-                    stage, container_pallet_creator_module, asset_spawn_cfg, 
-                    paths_cfg['asset_spawner_parent_usd'], scene_origin_np, 
-                    material_base_folder_str, img_idx 
-                )
-                simulation_app.update()
-            else:
-                print("Istanziazione asset principale (pallet/container) disabilitata.")
-
-            if(random.random()<probability_activation_wall):
-                wall_activated=True
-                print("muri attivati")
-                wall_paths =scene_setup_utils.spawn_invisible_walls(stage)
-
-
-
-            if ycb_spawn_cfg.get('enable', False): 
-                spawned_object_prim_paths=scene_setup_utils.spawn_additional_ycb_objects(
-                    stage, object_creator_module, ycb_spawn_cfg
-                )
-                simulation_app.update()
-                
-            else:
-                print("Istanziazione oggetti YCB disabilitata.")
-
-
-
-            if box_spawn_cfg.get('enable', True): 
-                spawned_box_prim_paths=scene_setup_utils.spawn_boxes_on_scene(
-                    stage, box_creator_module, Gf, box_spawn_cfg, 
-                    paths_cfg['box_parent_usd'], scene_origin_np, pbr_direct_mat_paths 
-                )
-                simulation_app.update()
-            else:
-                print("Istanziazione scatole (box_spawner) disabilitata.")
-            
-            
-            
-            for _ in range(50):
-                simulation_app.update() 
-
-            if wall_activated:
-                scene_setup_utils.disable_walls(stage,wall_paths,remove=False)
-   
-            print("Setup scena completato. Attesa stabilizzazione fisica...")
-            for _ in range(sim_setup_cfg.get('simulation_updates_after_setup', 500)):
-                simulation_app.update() 
-   
-            scene_setup_utils.setup_main_camera(
-                stage, prims_utils, Gf, UsdGeom, config['camera'], 
-                paths_cfg['camera_prim_usd'], scene_origin_np
-            )
-            simulation_app.update() 
-
-
-           
-
-
-
-   
-            image_output_directory = os.path.join(current_script_dir, paths_cfg['output_replicator_dir_base'], f"img{img_idx}")
-            os.makedirs(image_output_directory, exist_ok=True)
-   
-            replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], paths_cfg['camera_prim_usd'],image_output_directory)
-            rep.orchestrator.set_capture_on_play(False)
-
-
-                    
-            
-
-            
-
-            carb_s = carb.settings.get_settings()
-            carb_s.set_string("/renderer/active", "rtx")
-            carb_s.set_string("/rtx/rendermode", "rtx")
+def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cfg, ycb_spawn_cfg, config, paths_cfg,spawned_box_prim_paths, spawned_object_prim_paths):
 
             config_target_prim_to_grasp = "/World/MyTargetCube"
             
-
-
             config_initial_box_path = "/Box"
             config_box_mass = 0.02
             config_absolute_grip_force = 0.65 # Assicurati sia float 5000.0  0.6
@@ -756,6 +626,144 @@ def main_simulation(config_path=None):
                 print("Simulazione completata.")
 
 
+spawned_object_prim_paths=None
+spawned_box_prim_paths=None
+
+
+
+def main_simulation(config_path=None):
+    global config  # 👈 Dichiara che vuoi modificare la 'config' globale
+
+    # 1. Logica corretta: carica se il percorso NON è None
+    if config_path is not None:
+        print(f"Sovrascrivo la configurazione globale dal percorso: {config_path}")
+        config = load_configuration(config_path) # Ora questo modifica la variabile globale
+    else:
+        print("Nessun config_path fornito, uso la configurazione globale esistente.")
+
+
+    try:
+        paths_cfg = config['paths']
+        sim_setup_cfg = config['simulation_setup']
+        asset_spawn_cfg = config['asset_spawner']
+        box_spawn_cfg = config['box_spawner'] 
+        ycb_spawn_cfg = config.get('object_creator_ycb', {}) 
+        material_creator_cfg = config.get('material_creator',{})
+        probability_activation_wall = config["invisible_wall_during_fall"]["probability_activation"]
+        stereo_cam_cfg =config["stereo_camera_setup"]
+        
+        
+
+        scene_origin_np = np.array(asset_spawn_cfg.get('scene_origin_xyz', [0.0, 0.0, 0.0]))
+        material_base_folder_str = paths_cfg['base_materials_usd'] 
+        num_images_to_gen = sim_setup_cfg.get('num_images_to_generate', 1)
+        texture_dir_abs = os.path.abspath(os.path.join(current_script_dir, paths_cfg['texture_folder_relative']))
+        
+        for img_idx in range(1, num_images_to_gen + 1):
+            wall_activated=False
+
+            USA_GRIP = False
+            USA_PINZA = False
+
+            print(f"\n--- Inizio generazione immagine {img_idx}/{num_images_to_gen} ---")
+               
+            stage = scene_setup_utils.setup_new_scene_for_image(
+                simulation_app, omni.usd, img_idx, num_images_to_gen
+            )
+           
+               
+            pbr_components, pbr_direct_mat_paths = scene_setup_utils.create_scene_materials(
+                stage, simulation_app, material_creator_module, texture_dir_abs, material_base_folder_str,material_creator_cfg
+            )
+
+            scene_setup_utils.setup_scene_floor(
+                stage, scene_creator_module, paths_cfg['floor_prim_usd'], pbr_components
+            )
+               
+            timeline = omni.timeline.get_timeline_interface()
+            timeline.play() 
+               
+            scene_setup_utils.setup_scene_lighting(
+                stage, light_creator_module, config['light_creator'], paths_cfg['light_base_usd']
+            )
+            
+            if asset_spawn_cfg.get('enable', True): 
+                scene_setup_utils.spawn_main_asset(
+                    stage, container_pallet_creator_module, asset_spawn_cfg, 
+                    paths_cfg['asset_spawner_parent_usd'], scene_origin_np, 
+                    material_base_folder_str, img_idx 
+                )
+                simulation_app.update()
+            else:
+                print("Istanziazione asset principale (pallet/container) disabilitata.")
+
+            if(random.random()<probability_activation_wall):
+                wall_activated=True
+                print("muri attivati")
+                wall_paths =scene_setup_utils.spawn_invisible_walls(stage)
+
+
+            
+            global spawned_object_prim_paths
+            if ycb_spawn_cfg.get('enable', False): 
+                spawned_object_prim_paths=scene_setup_utils.spawn_additional_ycb_objects(
+                    stage, object_creator_module, ycb_spawn_cfg
+                )
+                simulation_app.update()
+                
+            else:
+                print("Istanziazione oggetti YCB disabilitata.")
+
+
+            global spawned_box_prim_paths
+            if box_spawn_cfg.get('enable', True): 
+                spawned_box_prim_paths=scene_setup_utils.spawn_boxes_on_scene(
+                    stage, box_creator_module, Gf, box_spawn_cfg, 
+                    paths_cfg['box_parent_usd'], scene_origin_np, pbr_direct_mat_paths 
+                )
+                simulation_app.update()
+            else:
+                print("Istanziazione scatole (box_spawner) disabilitata.")
+            
+            
+            
+            for _ in range(50):
+                simulation_app.update() 
+
+            if wall_activated:
+                scene_setup_utils.disable_walls(stage,wall_paths,remove=False)
+   
+            print("Setup scena completato. Attesa stabilizzazione fisica...")
+            for _ in range(sim_setup_cfg.get('simulation_updates_after_setup', 500)):
+                simulation_app.update() 
+   
+            scene_setup_utils.setup_main_camera(
+                stage, prims_utils, Gf, UsdGeom, config['camera'], 
+                paths_cfg['camera_prim_usd'], scene_origin_np
+            )
+            simulation_app.update() 
+
+
+           
+
+
+
+   
+            image_output_directory = os.path.join(current_script_dir, paths_cfg['output_replicator_dir_base'], f"img{img_idx}")
+            os.makedirs(image_output_directory, exist_ok=True)
+   
+            replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], paths_cfg['camera_prim_usd'],image_output_directory)
+            rep.orchestrator.set_capture_on_play(False)
+
+            carb_s = carb.settings.get_settings()
+            carb_s.set_string("/renderer/active", "rtx")
+            carb_s.set_string("/rtx/rendermode", "rtx")
+
+            grip_pinza(USA_GRIP=USA_GRIP, USA_PINZA=USA_PINZA, stage=stage, simulation_app=simulation_app, img_idx=img_idx, box_spawn_cfg=box_spawn_cfg, ycb_spawn_cfg=ycb_spawn_cfg, config=config, paths_cfg=paths_cfg,spawned_box_prim_paths=spawned_box_prim_paths, spawned_object_prim_paths=spawned_object_prim_paths)
+
+
+
+
 
 
 
@@ -986,11 +994,19 @@ if __name__ == "__main__":
                     
                     # Qui dovresti usare `options` per configurare il replicatore
                     # Ad esempio, attivando/disattivando annotatori prima di lanciare la generazione
-                    replicator_utils.run_replicator_data_generation(...)
-                    
+                    replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], config['paths']['camera_prim_usd'],image_output_directory)
+            
+
                     rep.orchestrator.set_capture_on_play(False)
+                    carb_s = carb.settings.get_settings()
+                    carb_s.set_string("/renderer/active", "rtx")
+                    carb_s.set_string("/rtx/rendermode", "rtx")
                     right_dir = os.path.join(image_output_directory, "right")
                     clean_right_output(right_dir)
+                    world = World()
+                    stage = world.stage
+                    grip_pinza(USA_GRIP=True, USA_PINZA=False, stage=stage, simulation_app=simulation_app, img_idx=1, box_spawn_cfg=config['box_spawner'] , ycb_spawn_cfg=config.get('object_creator_ycb', {}) , config=config, paths_cfg=config['paths'], spawned_box_prim_paths=spawned_box_prim_paths, spawned_object_prim_paths=spawned_object_prim_paths)
+
                     print(">>> Esecuzione di rigenerazione dati completata.")
 
                 simulation_in_progress = False  # Sblocca per nuove richieste
