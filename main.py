@@ -754,6 +754,8 @@ def main_simulation(config_path=None,options=None):
    
             replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], paths_cfg['camera_prim_usd'],image_output_directory)
             rep.orchestrator.set_capture_on_play(False)
+            for i in range(50):
+                simulation_app.update()
 
             carb_s = carb.settings.get_settings()
             carb_s.set_string("/renderer/active", "rtx")
@@ -1009,7 +1011,8 @@ if __name__ == "__main__":
                     # Qui dovresti usare `options` per configurare il replicatore
                     # Ad esempio, attivando/disattivando annotatori prima di lanciare la generazione
                     replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], config['paths']['camera_prim_usd'],image_output_directory)
-            
+                    for i in range(50):
+                        simulation_app.update()
 
                     rep.orchestrator.set_capture_on_play(False)
                     carb_s = carb.settings.get_settings()
