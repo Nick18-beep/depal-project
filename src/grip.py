@@ -323,7 +323,7 @@ class SurfaceGripperDirectScript:
     def sample_grasp_grid(
         self,
         prim_path: str,
-        grid_step_m: float = 0.1,
+        grid_step_m: float = 0.1,#0.1
         max_tilt_deg: float = 65.0,
         stage_time: Usd.TimeCode = Usd.TimeCode.Default(),
     ) -> List[Tuple[Gf.Vec3f, Gf.Quatf, Gf.Vec3f]]:

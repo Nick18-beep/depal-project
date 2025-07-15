@@ -469,7 +469,7 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
                         
                         # Il robot deve essere posizionato nel mondo, quindi usiamo le coordinate originali
                         robot.set_world_pose(position=first_pos, orientation=first_quat)
-                   
+                        timeline = omni.timeline.get_timeline_interface()
                         print("✓ Avvio della simulazione e del motore fisico...")
                         timeline.play()
                         for _ in range(5): simulation_app.update()
@@ -631,7 +631,7 @@ spawned_box_prim_paths=None
 
 
 
-def main_simulation(config_path=None):
+def main_simulation(config_path=None,options=None):
     global config  # 👈 Dichiara che vuoi modificare la 'config' globale
 
     # 1. Logica corretta: carica se il percorso NON è None
@@ -662,8 +662,8 @@ def main_simulation(config_path=None):
         for img_idx in range(1, num_images_to_gen + 1):
             wall_activated=False
 
-            USA_GRIP = False
-            USA_PINZA = False
+            USA_GRIP = 'grip' in options 
+            USA_PINZA = 'pinza' in options
 
             print(f"\n--- Inizio generazione immagine {img_idx}/{num_images_to_gen} ---")
                
@@ -834,7 +834,7 @@ simulation_in_progress = False
 
 # --- DA MODIFICARE: Percorso della cartella principale dei file di output ---
 SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIRECTORY = os.path.join(SCRIPT_DIRECTORY, 'output', 'img1')
+OUTPUT_DIRECTORY = os.path.join(SCRIPT_DIRECTORY, 'output')
 
 # ==============================================================================
 # ENDPOINT API
@@ -981,16 +981,30 @@ if __name__ == "__main__":
                     if config_path:
                         print(f"Utilizzando il file di configurazione: {config_path}")
                     
+                    # Elimina tutto in OUTPUT_DIRECTORY tranne i file .yaml/.yml
+                    for entry in os.listdir(OUTPUT_DIRECTORY):
+                        path = os.path.join(OUTPUT_DIRECTORY, entry)
+                        if os.path.isfile(path):
+                            if not (entry.endswith('.yaml') or entry.endswith('.yml')):
+                                os.remove(path)
+                        elif os.path.isdir(path):
+                            shutil.rmtree(path)
+
+
                     # ‼️ DEVI MODIFICARE LA TUA FUNZIONE PER ACCETTARE QUESTI PARAMETRI ‼️
                     # Esempio: main_simulation(options, config_path)
-                    main_simulation(config_path) 
+                    main_simulation(config_path,options) 
                     print(">>> Esecuzione di main_simulation() completata.")
 
                 elif task_type == "regenerate_data":
                     # ‼️ DEVI MODIFICARE LA TUA LOGICA PER USARE LE OPZIONI ‼️
                     # Esempio: usare `options` per decidere quali annotatori attivare
+                    stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
+
+                    for i in range(100):
+                        simulation_app.update()
                     timeline = omni.timeline.get_timeline_interface()
-                    image_output_directory = os.path.join(current_script_dir, config['paths']['output_replicator_dir_base'], f"img{1}")
+                    image_output_directory = os.path.join(current_script_dir, config['paths']['output_replicator_dir_base'], f"img{config['simulation_setup']['num_images_to_generate']}")
                     
                     # Qui dovresti usare `options` per configurare il replicatore
                     # Ad esempio, attivando/disattivando annotatori prima di lanciare la generazione
@@ -1005,7 +1019,9 @@ if __name__ == "__main__":
                     clean_right_output(right_dir)
                     world = World()
                     stage = world.stage
-                    grip_pinza(USA_GRIP=True, USA_PINZA=False, stage=stage, simulation_app=simulation_app, img_idx=1, box_spawn_cfg=config['box_spawner'] , ycb_spawn_cfg=config.get('object_creator_ycb', {}) , config=config, paths_cfg=config['paths'], spawned_box_prim_paths=spawned_box_prim_paths, spawned_object_prim_paths=spawned_object_prim_paths)
+                    run_grip = "grip" in options
+                    run_pinza = "pinza" in options
+                    grip_pinza(USA_GRIP=run_grip, USA_PINZA=run_pinza, stage=stage, simulation_app=simulation_app, img_idx=config["simulation_setup"]["num_images_to_generate"], box_spawn_cfg=config['box_spawner'] , ycb_spawn_cfg=config.get('object_creator_ycb', {}) , config=config, paths_cfg=config['paths'], spawned_box_prim_paths=spawned_box_prim_paths, spawned_object_prim_paths=spawned_object_prim_paths)
 
                     print(">>> Esecuzione di rigenerazione dati completata.")
 
