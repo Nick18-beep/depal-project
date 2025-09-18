@@ -51,6 +51,7 @@ class SurfaceGripperDirectScript:
         steps_wait_after_cone_usd_creation: int = 5,#5
         steps_wait_after_grip_refresh: int = 40,
         debug_pose_calculation: bool = False,
+        prim_deformable: bool = False,
         simulation_app = None
     ):
         self._timeline = omni.timeline.get_timeline_interface()
@@ -122,7 +123,7 @@ class SurfaceGripperDirectScript:
         self._contact_sub = None
         self.simulation_app=simulation_app
         self.grasp_pone_cone=None
-        
+        self.prim_deformable=prim_deformable
 
         
 
@@ -758,7 +759,9 @@ class SurfaceGripperDirectScript:
 
 
       
-
+        if(self.prim_deformable):
+            self.grip_status_code=1
+            self.task_complete=True
 
         
      
@@ -770,6 +773,9 @@ class SurfaceGripperDirectScript:
             if self._sim_step % 120 == 0: print(f"SIM_STEP {self._sim_step}: Stage invalid. Stopping updates.")
             if self._physx_sub: self._physx_sub.unsubscribe(); self._physx_sub = None
             return
+        
+        
+        
         
         # ---- TIMEOUT CHECK FOR INITIAL GRIP CLOSURE (Code 1) ----
         if not self.task_complete and \

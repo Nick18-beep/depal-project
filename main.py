@@ -10,7 +10,7 @@ import json
 import shutil
 from flask import Flask, jsonify, send_from_directory, request
 import threading
-
+import gc
 
 simulation_app = None
    
@@ -46,11 +46,13 @@ try:
         import omni.usd
         import omni.timeline
         from pxr import UsdGeom, Gf
+        from pxr import Usd, PhysxSchema
         from omni.isaac.core.utils import prims as prims_utils
         import omni.replicator.core as rep
         import carb
         from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdPhysics, UsdShade, Usd
         from omni.isaac.core import World
+        from omni.usd import get_context
    
         import src.material_creator as material_creator_module
         import src.scene_creator as scene_creator_module
@@ -96,6 +98,48 @@ def clean_right_output(root_dir, keep=("rgb", "camera_params")):
                         os.remove(path)                  # cancella file singolo
 
 
+def check_hierarchy_for_attribute(stage: Usd.Stage, root_prim_path: str, attr_name: str) -> bool:
+    """
+    Controlla se un attributo esiste su un prim o su uno qualsiasi dei suoi discendenti.
+
+    Args:
+        stage (Usd.Stage): Lo stage USD corrente.
+        root_prim_path (str): Il percorso del prim radice da cui iniziare la ricerca.
+        attr_name (str): Il nome dell'attributo da cercare.
+
+    Returns:
+        bool: True se l'attributo viene trovato, altrimenti False.
+    """
+    root_prim = stage.GetPrimAtPath(root_prim_path)
+    if not root_prim:
+        return False
+
+    # Usd.PrimRange itera sul prim radice e su TUTTI i suoi discendenti, a qualsiasi livello.
+    for prim in Usd.PrimRange(root_prim):
+        if prim.HasAttribute(attr_name):
+            return True  # Trovato! Interrompi la ricerca e restituisci True.
+            
+    return False # Se il loop finisce, l'attributo non è stato trovato.
+
+def is_prim_deformable(stage: Usd.Stage, prim_path: str) -> bool:
+    """
+    Controlla se un prim, o una qualsiasi delle sue mesh discendenti,
+    ha l'API PhysxDeformableBody applicata.
+    Restituisce True se è deformabile, altrimenti False.
+    """
+    root_prim = stage.GetPrimAtPath(prim_path)
+    if not root_prim:
+        return False
+
+    # Itera sul prim radice e su tutti i suoi discendenti
+    for prim in Usd.PrimRange(root_prim):
+        # HasAPI() è il modo più pulito e diretto per controllare
+        if prim.HasAPI(PhysxSchema.PhysxDeformableBodyAPI):
+            # Trovata una parte deformabile, l'intero oggetto è considerato tale
+            return True
+            
+    return False
+
 
 def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cfg, ycb_spawn_cfg, config, paths_cfg,spawned_box_prim_paths, spawned_object_prim_paths):
 
@@ -103,7 +147,7 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
             
             config_initial_box_path = "/Box"
             config_box_mass = 0.02
-            config_absolute_grip_force = 0.65 # Assicurati sia float 5000.0  0.6
+            config_absolute_grip_force = 0.7 # Assicurati sia float 5000.0  0.6
             config_grip_force_multiplier = 1.0 #500.0
             config_lift_speed_vertical = 2 # Modificato per un movimento più lento/controllato
 
@@ -245,9 +289,21 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
                     if ycb_spawn_cfg['enable']:
                         box_path = f"/World/GeneratedYCBObjects/SpawnedObject__{i}"
 
-                    
+                    prim_deformable=False
                     print(f"    Targeting box prim path: {box_path}")
 
+                    if is_prim_deformable(stage, box_path):
+                        print(f"   ATTENZIONE: L'oggetto '{box_path}' è deformabile. ")
+                        #prim_deformable=True
+                        #continue # Salta il resto del loop per questo oggetto
+
+                    # --- CODICE ALTERNATIVO (PIÙ COMPLESSO) ---
+
+                    if check_hierarchy_for_attribute(stage, box_path, "custom:is_pickable"):
+                        print(f"-> ⏭️  L'oggetto '{box_path}' o uno dei suoi figli ha il flag 'is_pickable'.")
+                        prim_deformable=True
+
+                   
                     # Non è strettamente necessario creare un'istanza qui se `sample_grasp_grid`
                     # potesse essere una funzione statica o non dipendente dallo stato dell'istanza
                     # che viene modificato da run(). Per coerenza con il codice precedente:
@@ -264,6 +320,7 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
                         steps_grace_period_after_settle=config_steps_grace_period_after_settle,
                         steps_wait_before_grip_attempt=config_steps_wait_before_grip_attempt,
                         steps_wait_after_grip_refresh=config_steps_wait_after_grip_refresh,
+                        prim_deformable=prim_deformable,
                         simulation_app=simulation_app
                     )
                     cone_positions = temp_sampler_instance.sample_grasp_grid(box_path)
@@ -429,6 +486,9 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
 
                    
                     print(f"    Targeting box prim path: {box_path}")
+                    if is_prim_deformable(stage, box_path):
+                        print(f"   ATTENZIONE: L'oggetto '{box_path}' è deformabile. Salto al prossimo.")
+                        continue # Salta il resto del loop per questo oggetto
 
 
 
@@ -660,6 +720,23 @@ def main_simulation(config_path=None,options=None):
         texture_dir_abs = os.path.abspath(os.path.join(current_script_dir, paths_cfg['texture_folder_relative']))
         
         for img_idx in range(1, num_images_to_gen + 1):
+            
+            #provo a ripulire
+            w=World()
+            w.clear()
+            rep.orchestrator.stop()
+            # 2. Ottieni il contesto USD e chiudi lo stage
+            gc.collect() # Forza il garbage collector di Python
+
+            usd_context = get_context()
+            if usd_context.get_stage():
+                usd_context.close_stage()
+                print("Stage chiuso.")
+            
+
+            for _ in range(200):
+                simulation_app.update() 
+
             wall_activated=False
 
             USA_GRIP = 'grip' in options 
@@ -670,15 +747,18 @@ def main_simulation(config_path=None,options=None):
             stage = scene_setup_utils.setup_new_scene_for_image(
                 simulation_app, omni.usd, img_idx, num_images_to_gen
             )
+            simulation_app.update()
            
                
             pbr_components, pbr_direct_mat_paths = scene_setup_utils.create_scene_materials(
                 stage, simulation_app, material_creator_module, texture_dir_abs, material_base_folder_str,material_creator_cfg
             )
+            simulation_app.update()
 
             scene_setup_utils.setup_scene_floor(
                 stage, scene_creator_module, paths_cfg['floor_prim_usd'], pbr_components
             )
+            simulation_app.update()
                
             timeline = omni.timeline.get_timeline_interface()
             timeline.play() 
@@ -730,8 +810,8 @@ def main_simulation(config_path=None,options=None):
             for _ in range(50):
                 simulation_app.update() 
 
-            if wall_activated:
-                scene_setup_utils.disable_walls(stage,wall_paths,remove=False)
+            #if wall_activated:
+            #    scene_setup_utils.disable_walls(stage,wall_paths,remove=False)
    
             print("Setup scena completato. Attesa stabilizzazione fisica...")
             for _ in range(sim_setup_cfg.get('simulation_updates_after_setup', 500)):
@@ -760,6 +840,13 @@ def main_simulation(config_path=None,options=None):
             carb_s = carb.settings.get_settings()
             carb_s.set_string("/renderer/active", "rtx")
             carb_s.set_string("/rtx/rendermode", "rtx")
+
+
+
+            
+
+            for i in range(50):
+             simulation_app.update()
 
             grip_pinza(USA_GRIP=USA_GRIP, USA_PINZA=USA_PINZA, stage=stage, simulation_app=simulation_app, img_idx=img_idx, box_spawn_cfg=box_spawn_cfg, ycb_spawn_cfg=ycb_spawn_cfg, config=config, paths_cfg=paths_cfg,spawned_box_prim_paths=spawned_box_prim_paths, spawned_object_prim_paths=spawned_object_prim_paths)
 
@@ -993,21 +1080,30 @@ if __name__ == "__main__":
                             shutil.rmtree(path)
 
 
-                    # ‼️ DEVI MODIFICARE LA TUA FUNZIONE PER ACCETTARE QUESTI PARAMETRI ‼️
+                    
                     # Esempio: main_simulation(options, config_path)
                     main_simulation(config_path,options) 
                     print(">>> Esecuzione di main_simulation() completata.")
 
                 elif task_type == "regenerate_data":
-                    # ‼️ DEVI MODIFICARE LA TUA LOGICA PER USARE LE OPZIONI ‼️
+                    
                     # Esempio: usare `options` per decidere quali annotatori attivare
                     stage_utils.load_stage_in_new_stage("stage_freeze_temp/saved_stage.usd")
 
-                    for i in range(100):
-                        simulation_app.update()
+                    
+                    world = World()
+                    stage = world.stage
+                    
                     timeline = omni.timeline.get_timeline_interface()
+                    #timeline.play()
+
+                    for i in range(200):
+                        simulation_app.update()
                     image_output_directory = os.path.join(current_script_dir, config['paths']['output_replicator_dir_base'], f"img{config['simulation_setup']['num_images_to_generate']}")
                     
+                    
+
+
                     # Qui dovresti usare `options` per configurare il replicatore
                     # Ad esempio, attivando/disattivando annotatori prima di lanciare la generazione
                     replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], config['paths']['camera_prim_usd'],image_output_directory)
@@ -1020,8 +1116,7 @@ if __name__ == "__main__":
                     carb_s.set_string("/rtx/rendermode", "rtx")
                     right_dir = os.path.join(image_output_directory, "right")
                     clean_right_output(right_dir)
-                    world = World()
-                    stage = world.stage
+                    
                     run_grip = "grip" in options
                     run_pinza = "pinza" in options
                     grip_pinza(USA_GRIP=run_grip, USA_PINZA=run_pinza, stage=stage, simulation_app=simulation_app, img_idx=config["simulation_setup"]["num_images_to_generate"], box_spawn_cfg=config['box_spawner'] , ycb_spawn_cfg=config.get('object_creator_ycb', {}) , config=config, paths_cfg=config['paths'], spawned_box_prim_paths=spawned_box_prim_paths, spawned_object_prim_paths=spawned_object_prim_paths)

@@ -321,6 +321,9 @@ def spawn_invisible_walls(stage: Usd.Stage,
     for i, (off, sc) in enumerate(zip(offs, scales)):
         p    = f"{grp.GetPath()}/wall_{i}"
         cube = UsdGeom.Cube.Define(stage, p)
+        
+        #rendo invisibile
+        UsdGeom.Imageable(cube).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
 
          # 2) rotazione: copia l'orient (quat) o, se non c'è, il rotateXYZ
         xf_tgt = UsdGeom.Xformable(tgt)

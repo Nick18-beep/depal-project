@@ -504,7 +504,8 @@ def run_replicator_data_generation(
      #provo a forzare un reset
     carb_s.set_string("/rtx/rendermode", "RayTracedLighting") 
     carb_s.set_string("/rtx/rendermode", "PathTracing") 
-    carb_s.set_int("/rtx/pathtracing/spp", 64)
+    
+    carb_s.set_int("/rtx/pathtracing/spp", rep_cfg["rtx_pathtracing_spp"])
     
     
 
