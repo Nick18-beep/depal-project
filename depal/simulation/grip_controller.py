@@ -455,6 +455,11 @@ class GripWorkflow:
             return physical_parts
 
         for prim in pxr["Usd"].PrimRange(root_prim):
-            if prim.HasAPI(pxr["UsdPhysics"].CollisionAPI) and prim.IsA(pxr["UsdGeom"].Gprim):
+            has_collision = prim.HasAPI(pxr["UsdPhysics"].CollisionAPI)
+            is_geometry = prim.IsA(pxr["UsdGeom"].Gprim)
+
+            if has_collision and (is_geometry or prim.GetTypeName() == "Xform"):
+                physical_parts.append(prim.GetPath().pathString)
+            elif has_collision:
                 physical_parts.append(prim.GetPath().pathString)
         return physical_parts
