@@ -8,6 +8,8 @@ from functools import cached_property
 from pathlib import Path
 from typing import Optional
 
+from depal.utils.logger import log_debug, log_error, log_info, log_warning
+
 
 class StageIO:
     """Encapsulates save/load operations for the active USD stage.
@@ -30,19 +32,19 @@ class StageIO:
     # ------------------------------------------------------------------ #
     def save_stage(self, output_folder: str, file_name: str = "saved_stage.usd") -> Optional[Path]:
         """Save the currently open stage to the given folder."""
-        print(f"[StageIO] Avvio salvataggio stage in '{output_folder}/{file_name}'...")
+        log_info(f"StageIO: salvataggio in '{output_folder}/{file_name}'")
         was_playing = self._pause_if_needed()
 
         try:
             output_path = self._prepare_output_path(output_folder, file_name)
         except Exception as exc:
-            print(f"[StageIO] Errore durante la preparazione della cartella: {exc}", file=sys.stderr)
+            log_error(f"StageIO: creazione cartella fallita ({exc})")
             self._resume_if_needed(was_playing)
             return None
 
         stage = self._usd_context.get_stage()
         if not stage:
-            print("[StageIO] Errore: nessuno stage attivo da salvare.", file=sys.stderr)
+            log_warning("StageIO: nessuno stage attivo da salvare")
             self._resume_if_needed(was_playing)
             return None
 
@@ -50,9 +52,9 @@ class StageIO:
         try:
             if not root_layer.Export(str(output_path)):
                 raise RuntimeError(f"root_layer.Export() non riuscito per '{output_path}'")
-            print(f"[StageIO] Stage salvato con successo in: {output_path}")
+            log_info(f"StageIO: stage salvato -> {output_path}")
         except Exception as exc:
-            print(f"[StageIO] Errore durante l'esportazione dello stage: {exc}", file=sys.stderr)
+            log_error(f"StageIO: esportazione fallita ({exc})")
             output_path = None
         finally:
             self._resume_if_needed(was_playing)
@@ -62,25 +64,24 @@ class StageIO:
     def load_stage(self, file_path: str) -> bool:
         """Load the provided USD file into a fresh stage context."""
         absolute_path = Path(self.resolve_main_script_dir(), file_path).resolve()
-        print(f"[StageIO] Tentativo di caricare lo stage da: {file_path}")
-        print(f"[StageIO] Percorso assoluto calcolato: {absolute_path}")
+        log_info(f"StageIO: caricamento stage da '{absolute_path}'")
 
         if not absolute_path.exists():
             msg = f"File USD non trovato presso {absolute_path}"
-            print(f"[StageIO] ERRORE CRITICO: {msg}", file=sys.stderr)
+            log_error(f"StageIO: {msg}")
             raise FileNotFoundError(msg)
 
         was_playing = self._pause_if_needed()
 
-        print("[StageIO] Creazione di un nuovo stage tramite omni.usd.get_context().new_stage()...")
+        log_debug("StageIO: creazione nuovo stage in corso")
         if not self._usd_context.new_stage():
-            print("[StageIO] ERRORE: impossibile creare un nuovo stage vuoto.", file=sys.stderr)
+            log_error("StageIO: impossibile creare un nuovo stage vuoto")
             self._resume_if_needed(was_playing)
             raise RuntimeError("Impossibile creare un nuovo stage vuoto.")
 
         self._pump_app_updates(1)
 
-        print(f"[StageIO] Apertura del file USD '{absolute_path}' nel nuovo stage...")
+        log_info(f"StageIO: apertura file USD '{absolute_path}'")
         try:
             if not self._usd_context.open_stage(str(absolute_path)):
                 usd_error_log = self._usd_context.get_error_log()
@@ -89,7 +90,7 @@ class StageIO:
                     error_msg += f"\nLog errori USD:\n{usd_error_log}"
                 raise RuntimeError(error_msg)
             self._pump_app_updates(1)
-            print(f"[StageIO] Stage caricato con successo da: {absolute_path}")
+            log_info(f"StageIO: stage caricato ({absolute_path})")
         finally:
             self._resume_if_needed(was_playing)
 
@@ -103,8 +104,8 @@ class StageIO:
         folder_path = (base_dir / output_folder).resolve()
         folder_path.mkdir(parents=True, exist_ok=True)
         output_path = folder_path / file_name
-        print(f"[StageIO] Cartella di output assicurata: {folder_path}")
-        print(f"[StageIO] Salvataggio stage in percorso assoluto: {output_path}")
+        log_debug(f"StageIO: cartella output -> {folder_path}")
+        log_debug(f"StageIO: percorso salvataggio -> {output_path}")
         return output_path
 
     def _pump_app_updates(self, iterations: int) -> None:
@@ -113,7 +114,7 @@ class StageIO:
 
     def _pause_if_needed(self) -> bool:
         if self._timeline.is_playing():
-            print("[StageIO] Timeline in esecuzione: stop temporaneo.")
+            log_debug("StageIO: timeline in esecuzione, richiesta pausa")
             self._timeline.stop()
             self._pump_app_updates(1)
             return True
@@ -121,7 +122,7 @@ class StageIO:
 
     def _resume_if_needed(self, was_playing: bool) -> None:
         if was_playing:
-            print("[StageIO] Ripresa della timeline.")
+            log_debug("StageIO: timeline ripresa")
             self._timeline.play()
             self._pump_app_updates(1)
 
@@ -131,7 +132,7 @@ class StageIO:
         main_file = getattr(main_mod, "__file__", None)
         if main_file:
             return os.path.dirname(os.path.abspath(main_file))
-        print("[StageIO] Attenzione: __main__.__file__ non disponibile. Uso os.getcwd() come fallback.")
+        log_warning("StageIO: __main__.__file__ non disponibile, uso os.getcwd()")
         return os.getcwd()
 
     # ------------------------------------------------------------------ #

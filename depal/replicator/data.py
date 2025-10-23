@@ -10,10 +10,12 @@ from typing import Dict, Set, Tuple, List, Optional
 import shutil
 import typing as T
 
+from depal.utils.logger import log_debug, log_error, log_info, log_section, log_warning
+
 try:
     import cv2
 except ImportError:
-    print("IMPORT ERROR: OpenCV (cv2) non trovato. Necessario per lo splitting della segmentazione.")
+    _info("IMPORT ERROR: OpenCV (cv2) non trovato. Necessario per lo splitting della segmentazione.")
 cv2 = None
 
 _PXR_CACHE = None
@@ -32,6 +34,22 @@ def _get_omni_usd():
     import omni.usd  # pylint: disable=import-outside-toplevel
 
     return omni.usd
+
+
+def _info(message: str) -> None:
+    log_info(f"Replicator: {message}")
+
+
+def _warn(message: str) -> None:
+    log_warning(f"Replicator: {message}")
+
+
+def _error(message: str) -> None:
+    log_error(f"Replicator: {message}")
+
+
+def _section(message: str) -> None:
+    log_section(f"Replicator | {message}")
 
 SPLIT_CLASSES: Set[str] = {"box","ycb_object"}
 IGNORE_CLASSES: Set[str] = {"BACKGROUND", "UNLABELLED"}
@@ -54,7 +72,7 @@ import os
 def _calculate_focal_length_pixels(image_width_px, cam_focal_length_mm, cam_horizontal_aperture_mm):
     """Calcola la lunghezza focale in pixel basata sulla larghezza dell'immagine."""
     if cam_horizontal_aperture_mm == 0:
-        print("Errore: CAM_HORIZONTAL_APERTURE_MM non puo essere zero.")
+        _error(" CAM_HORIZONTAL_APERTURE_MM non puo essere zero.")
         return None
     return (cam_focal_length_mm / cam_horizontal_aperture_mm) * image_width_px
 
@@ -77,7 +95,7 @@ def _calculate_basic_depth_map(imgL_gray, imgR_gray, focal_length_px, baseline_m
         speckleRange=32,
         mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
     )
-    print("Calcolo disparita (SGBM base)...")
+    _info("Calcolo disparita (SGBM base)...")
     disparity = stereo.compute(imgL_gray, imgR_gray).astype(np.float32) / 16.0
 
 
@@ -195,9 +213,9 @@ def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
 
     try:
         cv2.imwrite(output_path, colored_image_bgr_uint8)
-        print(f"Immagine mappa di profondita (solo immagine) salvata in: {output_path}")
+        _info(f"Immagine mappa di profondita (solo immagine) salvata in: {output_path}")
     except Exception as e:
-        print(f"Errore durante il salvataggio dell'immagine (solo immagine) della mappa di profondita: {e}")
+        _error(f" durante il salvataggio dell'immagine (solo immagine) della mappa di profondita: {e}")
 
 
 
@@ -235,12 +253,12 @@ def process_stereo_images_minimal(
     """
 
 
-    print(f"--- Inizio Processo Minimale Stereo ---")
-    print(f"Img Sinistra: {left_image_path}")
-    print(f"Img Destra: {right_image_path}")
-    print(f"Dimensioni Img Input: {image_width_px}x{image_height_px} px")
-    print(f"Output Folder: {output_folder}")
-    print(f"Max Profondita: {max_depth_meters} m" if max_depth_meters else "Max Profondita: Auto")
+    _info(f"--- Inizio Processo Minimale Stereo ---")
+    _info(f"Img Sinistra: {left_image_path}")
+    _info(f"Img Destra: {right_image_path}")
+    _info(f"Dimensioni Img Input: {image_width_px}x{image_height_px} px")
+    _info(f"Output Folder: {output_folder}")
+    _info(f"Max Profondita: {max_depth_meters} m" if max_depth_meters else "Max Profondita: Auto")
 
 
     # Usa le caratteristiche fisse della fotocamera definite sopra
@@ -250,22 +268,22 @@ def process_stereo_images_minimal(
         cameraAperture
     )
     if focal_length_px_calculated is None:
-        print("Errore nel calcolo della lunghezza focale in pixel. Interruzione.")
+        _info("Errore nel calcolo della lunghezza focale in pixel. Interruzione.")
         return False
     
     baseline_to_use_meters = baseline_given # Usa la costante globale
 
 
-    print(f"Focale calcolata: {focal_length_px_calculated:.2f} px (da {cameraFocalLength}mm lens, {cameraAperture}mm sensor width)")
-    print(f"Baseline usata: {baseline_to_use_meters} m (costante)")
+    _info(f"Focale calcolata: {focal_length_px_calculated:.2f} px (da {cameraFocalLength}mm lens, {cameraAperture}mm sensor width)")
+    _info(f"Baseline usata: {baseline_to_use_meters} m (costante)")
 
 
     if not os.path.exists(output_folder):
         try:
             os.makedirs(output_folder)
-            print(f"Cartella di output creata: {output_folder}")
+            _info(f"Cartella di output creata: {output_folder}")
         except OSError as e:
-            print(f"Errore: Impossibile creare la cartella di output {output_folder}. {e}")
+            _error(f": Impossibile creare la cartella di output {output_folder}. {e}")
             return False
 
 
@@ -274,21 +292,21 @@ def process_stereo_images_minimal(
 
 
     if imgL_bgr is None:
-        print(f"Errore: Impossibile caricare l'immagine sinistra da {left_image_path}")
+        _error(f": Impossibile caricare l'immagine sinistra da {left_image_path}")
         return False
     if imgR_bgr is None:
-        print(f"Errore: Impossibile caricare l'immagine destra da {right_image_path}")
+        _error(f": Impossibile caricare l'immagine destra da {right_image_path}")
         return False
 
 
     # Verifica e/o ridimensiona le immagini alle dimensioni specificate
     if imgL_bgr.shape[1] != image_width_px or imgL_bgr.shape[0] != image_height_px:
-        print(f"Avviso: L'immagine sinistra {left_image_path} ha dimensioni {imgL_bgr.shape[1]}x{imgL_bgr.shape[0]},"
+        _info(f"Avviso: L'immagine sinistra {left_image_path} ha dimensioni {imgL_bgr.shape[1]}x{imgL_bgr.shape[0]},"
               f" ma sono state specificate {image_width_px}x{image_height_px}. Ridimensionamento...")
         imgL_bgr = cv2.resize(imgL_bgr, (image_width_px, image_height_px), interpolation=cv2.INTER_AREA)
     
     if imgR_bgr.shape[1] != image_width_px or imgR_bgr.shape[0] != image_height_px:
-        print(f"Avviso: L'immagine destra {right_image_path} ha dimensioni {imgR_bgr.shape[1]}x{imgR_bgr.shape[0]},"
+        _info(f"Avviso: L'immagine destra {right_image_path} ha dimensioni {imgR_bgr.shape[1]}x{imgR_bgr.shape[0]},"
               f" ma sono state specificate {image_width_px}x{image_height_px}. Ridimensionamento...")
         imgR_bgr = cv2.resize(imgR_bgr, (image_width_px, image_height_px), interpolation=cv2.INTER_AREA)
 
@@ -305,21 +323,21 @@ def process_stereo_images_minimal(
             max_depth_m=max_depth_meters
         )
     except Exception as e:
-        print(f"Errore durante il calcolo della mappa di profondita: {e}")
+        _error(f" durante il calcolo della mappa di profondita: {e}")
         return False
 
 
     if depth_map_mm is None:
-        print("Calcolo della mappa di profondita fallito.")
+        _info("Calcolo della mappa di profondita fallito.")
         return False
 
 
     npy_filename = os.path.join(output_folder, f"{base_filename}.npy")
     try:
         np.save(npy_filename, depth_map_mm)
-        print(f"Mappa di profondita numerica (.npy) salvata in: {npy_filename}")
+        _info(f"Mappa di profondita numerica (.npy) salvata in: {npy_filename}")
     except Exception as e:
-        print(f"Errore durante il salvataggio del file .npy: {e}")
+        _error(f" durante il salvataggio del file .npy: {e}")
 
 
 
@@ -339,11 +357,11 @@ def process_stereo_images_minimal(
             
             )
     except Exception as e:
-        print(f"Errore durante il salvataggio dell'immagine colorata della mappa di profondita: {e}")
+        _error(f" durante il salvataggio dell'immagine colorata della mappa di profondita: {e}")
         return False
 
 
-    print(f"--- Processo Minimale Stereo Completato ---")
+    _info(f"--- Processo Minimale Stereo Completato ---")
     return True
 
 
@@ -369,7 +387,7 @@ def _save_rgba(path: str, img_rgba: np.ndarray) -> None:
     if not os.path.exists(output_dir) and output_dir != "": os.makedirs(output_dir, exist_ok=True)
     img_bgra = cv2.cvtColor(img_rgba, cv2.COLOR_RGBA2BGRA)
     try: cv2.imwrite(path, img_bgra)
-    except Exception as e: print(f"Errore salvataggio immagine '{path}': {e}")
+    except Exception as e: _error(f" salvataggio immagine '{path}': {e}")
 
 
 
@@ -378,7 +396,7 @@ def split_rgb_instance_segmentation(
     current_split_classes: Set[str], current_ignore_classes: Set[str]
 ) -> Tuple[Optional[str], Optional[str], bool]:
     if cv2 is None:
-        print("   Errore: cv2 non disponibile per split_rgb_instance_segmentation.")
+        _info("   Errore: cv2 non disponibile per split_rgb_instance_segmentation.")
         return None, None, False
     img = _load_rgba(image_path)
     if img is None: return None, None, False
@@ -433,7 +451,7 @@ def split_rgb_instance_segmentation(
     json_output_dir = os.path.dirname(final_output_json_path)
     if not os.path.exists(json_output_dir) and json_output_dir != "": os.makedirs(json_output_dir, exist_ok=True)
     with open(final_output_json_path, "w", encoding="utf-8") as f: json.dump(out_map, f, indent=2, sort_keys=True)
-    print(f"   Split mask: '{final_output_png_path}', Split mapping: '{final_output_json_path}'")
+    _info(f"   Split mask: '{final_output_png_path}', Split mapping: '{final_output_json_path}'")
     return final_output_png_path, final_output_json_path, True
 
 def run_replicator_data_generation(
@@ -445,14 +463,14 @@ def run_replicator_data_generation(
     _, _, Gf, _ = _get_pxr_modules()
     omni_usd = _get_omni_usd()
     if cv2 is None and rep_cfg.get("enable_segmentation_split", True):
-        print("AVVISO: OpenCV (cv2) non disponibile, ma 'enable_segmentation_split' e True. Lo splitting non sara possibile.")
+        _warn("AVVISO: OpenCV (cv2) non disponibile, ma 'enable_segmentation_split' e True. Lo splitting non sara possibile.")
 
     if timeline_ref.is_playing():
         timeline_ref.pause()
     simulation_app.update()
 
     os.makedirs(output_dir_root, exist_ok=True)
-    print(f"Replicator: Inizio generazione dati in '{output_dir_root}'. Elaborazione telecamere sequenzialmente.")
+    _info(f"Replicator: Inizio generazione dati in '{output_dir_root}'. Elaborazione telecamere sequenzialmente.")
 
     MAIN_CAMERA_RP_NAME = "main_cam_rp" # Suffisso RP per chiarezza interna
     LEFT_STEREO_RP_NAME = "left_stereo_rp"
@@ -476,23 +494,23 @@ def run_replicator_data_generation(
     '''
     # --- 1. Elaborazione Telecamera Principale ---
     if cam_path_str:
-        print(f"\n--- Elaborazione camera principale: {cam_path_str} -> '{output_dir_root}' ---")
+        _info(f"\n--- Elaborazione camera principale: {cam_path_str} -> '{output_dir_root}' ---")
         with  rep_module.new_layer():
 
             
             rp_main = rep_module.create.render_product(cam_path_str, resolution_wh, name=MAIN_CAMERA_RP_NAME)
             
             annotators_for_main_cam = rep_cfg.get('annotators_to_attach', [])
-            print(f"  Collegamento annotatori (da rep_cfg) a {MAIN_CAMERA_RP_NAME}:")
+            _info(f"  Collegamento annotatori (da rep_cfg) a {MAIN_CAMERA_RP_NAME}:")
             for annotator_config in annotators_for_main_cam:
                 annotator_name = annotator_config.get("name") if isinstance(annotator_config, dict) else annotator_config
                 if not annotator_name: continue
                 try:
                     annotator_instance = rep_module.annotators.get(annotator_name)
                     annotator_instance.attach(rp_main)
-                    print(f"    Annotatore '{annotator_name}' collegato.")
+                    _info(f"    Annotatore '{annotator_name}' collegato.")
                 except Exception as e:
-                    print(f"    ATTENZIONE: Annotatore '{annotator_name}' non collegato a {MAIN_CAMERA_RP_NAME}: {e}")
+                    _info(f"    ATTENZIONE: Annotatore '{annotator_name}' non collegato a {MAIN_CAMERA_RP_NAME}: {e}")
             
             writer_main = rep_module.WriterRegistry.get("BasicWriter")
             # Usa writer_global_config che puo specificare formati per annotatori (es. rgb:png)
@@ -531,7 +549,7 @@ def run_replicator_data_generation(
             rep_cfg.get("stereo_origin_y", 0.0),
             float(main_cam_world_pos[2]),
         )
-        print("posizione camera stereo", stereo_position)
+        _info("posizione camera stereo", stereo_position)
 
    
         stereo = rep_module.create.stereo_camera(
@@ -589,21 +607,21 @@ def run_replicator_data_generation(
 
     # --- Post-processing (Per output della Telecamera Principale, che si trovano in output_dir_root) ---
     # Questa parte rimane invariata, opera sui file in output_dir_root
-    print(f"\n--- Inizio Post-Processing per output della camera principale in '{output_dir_root}' ---")
+    _info(f"\n--- Inizio Post-Processing per output della camera principale in '{output_dir_root}' ---")
     
     depth_npy_basename = os.path.join("left", "distance_to_image_plane", "distance_to_image_plane_0000.npy")
     input_npy_filepath = os.path.join(output_dir_root, depth_npy_basename)
     conversione = False
     
     if os.path.exists(input_npy_filepath):
-        print(f"  Trovato file di profondita: '{input_npy_filepath}'")
+        _info(f"  Trovato file di profondita: '{input_npy_filepath}'")
         try:
             depth_array = np.load(input_npy_filepath)
             
             depth_tiff_basename = "distance_to_image_plane_0000.tif"
             output_tiff_filepath = os.path.join(output_dir_root, "left", "distance_to_image_plane", depth_tiff_basename)
             tifffile.imwrite(output_tiff_filepath, depth_array, imagej=True)
-            print(f"   Dati di profondita TIFF: '{output_tiff_filepath}'")
+            _info(f"   Dati di profondita TIFF: '{output_tiff_filepath}'")
             
             depth_preview_png_basename = "distance_to_image_plane_0000_preview.png"
             output_png_preview_filepath = os.path.join(output_dir_root, "left", "distance_to_image_plane", depth_preview_png_basename)
@@ -611,25 +629,25 @@ def run_replicator_data_generation(
             depth_norm = np.zeros_like(depth_array,dtype=np.float32) if max_val == min_val else (depth_array - min_val) / (max_val - min_val)
             depth_img_preview = (depth_norm * 255).astype(np.uint8)
             plt.imsave(output_png_preview_filepath, depth_img_preview, cmap='plasma')
-            print(f"   Preview profondita PNG: '{output_png_preview_filepath}'")
+            _info(f"   Preview profondita PNG: '{output_png_preview_filepath}'")
         except Exception as e: 
-            print(f"   Errore durante la conversione/salvataggio dei dati di profondita: {e}")
+            _info(f"   Errore durante la conversione/salvataggio dei dati di profondita: {e}")
     else:
-        print(f"   File .npy di profondita '{input_npy_filepath}' non trovato in '{output_dir_root}'. Verranno generati i file tramite pipeline stereo.")
+        _info(f"   File .npy di profondita '{input_npy_filepath}' non trovato in '{output_dir_root}'. Verranno generati i file tramite pipeline stereo.")
 
     if rep_cfg.get("enable_segmentation_split", True):
         if cv2 is None:
-            print("   CV2 non disponibile. Skipping splitting segmentazione.")
+            _info("   CV2 non disponibile. Skipping splitting segmentazione.")
         else:
-            print(f"\n--- Tentativo di splitting segmentazione (per output della camera principale in '{output_dir_root}') ---")
+            _info(f"\n--- Tentativo di splitting segmentazione (per output della camera principale in '{output_dir_root}') ---")
             segmentation_json_basename = "instance_segmentation_semantics_mapping_0000.json"
             segmentation_image_basename_for_split = rep_cfg.get("segmentation_image_filename_for_split", "instance_segmentation_0000.png")
             
             segmentation_json_path = os.path.join(output_dir_root, "left", "instance_segmentation", segmentation_json_basename)
             segmentation_img_path = os.path.join(output_dir_root, "left", "instance_segmentation", segmentation_image_basename_for_split)
             
-            print(f"  Cercando immagine segmentazione per splitting: '{segmentation_img_path}'")
-            print(f"  Cercando JSON mapping per splitting: '{segmentation_json_path}'")
+            _info(f"  Cercando immagine segmentazione per splitting: '{segmentation_img_path}'")
+            _info(f"  Cercando JSON mapping per splitting: '{segmentation_json_path}'")
 
             if os.path.exists(segmentation_img_path) and os.path.exists(segmentation_json_path):
                 base_for_split_output = os.path.splitext(segmentation_image_basename_for_split)[0]
@@ -638,20 +656,20 @@ def run_replicator_data_generation(
                 current_split_classes = set(rep_cfg.get("split_tool_config", {}).get("split_classes", list(SPLIT_CLASSES)))
                 current_ignore_classes = set(rep_cfg.get("split_tool_config", {}).get("ignore_classes", list(IGNORE_CLASSES)))
                 
-                print(f"  Avvio splitting per: Img='{segmentation_img_path}', Json='{segmentation_json_path}', OutPrefix='{output_prefix_for_split}'")
+                _info(f"  Avvio splitting per: Img='{segmentation_img_path}', Json='{segmentation_json_path}', OutPrefix='{output_prefix_for_split}'")
                 split_rgb_instance_segmentation(
                     image_path=segmentation_img_path, color_mapping_path=segmentation_json_path,
                     output_path_prefix=output_prefix_for_split,
                     current_split_classes=current_split_classes, current_ignore_classes=current_ignore_classes
                 )
             else:
-                print(f"   Immagine segmentazione o JSON mapping non trovati in '{output_dir_root}'. Skipping splitting.")
-                if not os.path.exists(segmentation_img_path): print(f"    File immagine NON TROVATO: '{segmentation_img_path}'")
-                if not os.path.exists(segmentation_json_path): print(f"    File JSON NON TROVATO: '{segmentation_json_path}'")
+                _info(f"   Immagine segmentazione o JSON mapping non trovati in '{output_dir_root}'. Skipping splitting.")
+                if not os.path.exists(segmentation_img_path): _info(f"    File immagine NON TROVATO: '{segmentation_img_path}'")
+                if not os.path.exists(segmentation_json_path): _info(f"    File JSON NON TROVATO: '{segmentation_json_path}'")
     else:
-        print("\n--- Splitting segmentazione disabilitato in rep_cfg ---")
+        _info("\n--- Splitting segmentazione disabilitato in rep_cfg ---")
     
-    print(f"\nReplicator: Generazione dati e post-processing in '{output_dir_root}' (e sottocartelle stereo) completati.")
+    _info(f"\nReplicator: Generazione dati e post-processing in '{output_dir_root}' (e sottocartelle stereo) completati.")
 
 
     rgb_left = os.path.join(output_dir_root, "left", "rgb", "rgb_0000.png")
@@ -662,8 +680,8 @@ def run_replicator_data_generation(
 
             cameraAperture = float(data["cameraAperture"][0])
             cameraFocalLength = float(data["cameraFocalLength"])
-    print(cameraAperture)
-    print(cameraFocalLength)
+    _info(cameraAperture)
+    _info(cameraFocalLength)
 
         
     success = process_stereo_images_minimal(

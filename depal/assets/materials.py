@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
+from depal.utils.logger import log_error, log_info, log_warning
+
 if TYPE_CHECKING:  # pragma: no cover
     from pxr import Gf, Sdf, UsdShade, Usd
 
@@ -104,7 +106,7 @@ class MaterialFactory:
     def create_from_directory(self, texture_directory: Path) -> List[MaterialComponent]:
         """Scan a directory and generate an OmniPBR material for each supported file."""
         if not texture_directory.is_dir():
-            print(f"Cartella texture inesistente: {texture_directory}")
+            log_warning(f"MaterialFactory: cartella texture inesistente ({texture_directory})")
             return []
 
         created_components: List[MaterialComponent] = []
@@ -115,7 +117,7 @@ class MaterialFactory:
             if component:
                 created_components.append(component)
 
-        print(f"Creati {len(created_components)} materiali PBR.")
+        log_info(f"MaterialFactory: creati {len(created_components)} materiali PBR")
         return created_components
 
     # ------------------------------------------------------------------ #
@@ -132,7 +134,7 @@ class MaterialFactory:
                 texture_scale=[texture_scale, texture_scale],
             )
         except Exception as exc:  # pragma: no cover - OmniPBR specific
-            print(f"ERROR OmniPBR {material_path}: {exc}")
+            log_error(f"MaterialFactory: errore OmniPBR per {material_path} ({exc})")
             traceback.print_exc()
             return None
 
@@ -142,7 +144,7 @@ class MaterialFactory:
         material_schema = self._UsdShade.Material(material_prim)
         shader_prim = next((child for child in material_prim.GetChildren() if child.IsA(self._UsdShade.Shader)), None)
         if not shader_prim:
-            print(f"Nessuno shader trovato sotto {material_path}")
+            log_warning(f"MaterialFactory: nessuno shader trovato per {material_path}")
             return MaterialComponent(material_prim, [], material_schema)
 
         shader = self._UsdShade.Shader(shader_prim)
@@ -162,7 +164,7 @@ class MaterialFactory:
                     formatted.append(f"{key}={value:.2f}")
                 else:
                     formatted.append(f"{key}={value}")
-            print(f"   {'; '.join(formatted)}")
+            log_debug(f"MaterialFactory: parametri applicati -> {'; '.join(formatted)}")
 
         return MaterialComponent(material_prim, [shader_prim], material_schema)
 
@@ -190,7 +192,7 @@ class MaterialFactory:
 
         probability = self._config["emissive_probability"]
         if not isinstance(probability, (float, int)) or not (0.0 <= probability <= 1.0):
-            print(f"    emissive_probability ({probability}) non valida o fuori range [0,1]. Ignorata.")
+            log_warning(f"MaterialFactory: emissive_probability ({probability}) fuori range [0,1], ignorata")
             return
 
         if random.random() < probability:
@@ -202,7 +204,7 @@ class MaterialFactory:
         if disabled:
             applied["emissive_color"] = black
             applied["emissive_intensity"] = 0.0
-            print(f"    emissione disattivata (probabilita ON: {probability * 100:.1f}%)")
+            log_info(f"MaterialFactory: emissione disattivata (probabilita ON {probability * 100:.1f}%)")
 
     def _set_shader_input(self, shader, name: str, value_type, value) -> bool:
         input_attr = shader.GetInput(name)
@@ -211,7 +213,7 @@ class MaterialFactory:
         try:
             input_attr.Set(value)
         except Exception as exc:  # pragma: no cover - USD layer specific
-            print(f"Impossibile impostare l'input '{name}' a {value}: {exc}")
+            log_warning(f"MaterialFactory: impossibile impostare l'input {name} a {value} ({exc})")
             return False
         return True
 

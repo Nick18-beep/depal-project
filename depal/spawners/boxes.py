@@ -5,7 +5,27 @@ import numpy as np
 from pxr import Gf, UsdGeom, UsdPhysics, Sdf, UsdShade, Usd,UsdPhysics, PhysxSchema, Gf
 import os
 
+from depal.utils.logger import log_debug, log_error, log_info, log_warning
+
 # Importazioni da Isaac Sim Core
+
+
+def _info(message: str) -> None:
+    log_info(f"BoxSpawner: {message}")
+
+
+def _warn(message: str) -> None:
+    log_warning(f"BoxSpawner: {message}")
+
+
+def _debug(message: str) -> None:
+    log_debug(f"BoxSpawner: {message}")
+
+
+def _error(message: str) -> None:
+    log_error(f"BoxSpawner: {message}")
+
+
 from omni.isaac.core.utils.prims import create_prim, get_prim_at_path # get_prim_at_path non usato qui ma buona pratica
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
 from omni.isaac.core.utils.semantics import add_update_semantics
@@ -46,7 +66,7 @@ def spawn_basic_boxes(
     min_spawn = max(0, min_spawn)
     max_spawn = max(min_spawn, max_spawn)
     num_boxes = random.randint(min_spawn, max_spawn) if max_spawn >= min_spawn else 0
-    print(f"simple_box_spawner.py: Inizio generazione di {num_boxes} scatole (range richiesto {min_spawn}-{max_spawn}).")
+    _info(f"Inizio generazione di {num_boxes} scatole (range richiesto {min_spawn}-{max_spawn}).")
 
     all_available_usd_asset_paths = []
     if box_asset_paths:
@@ -54,7 +74,7 @@ def spawn_basic_boxes(
 
     if asset_folder_path and os.path.isdir(asset_folder_path):
         # ... (codice di scansione cartella invariato) ...
-        print(f"simple_box_spawner.py: Scansione cartella asset '{asset_folder_path}' per file .usd...")
+        _info(f"Scansione cartella asset '{asset_folder_path}' per file .usd...")
         found_in_folder = 0
         for item in os.listdir(asset_folder_path):
             if item.lower().endswith(".usd"):
@@ -64,14 +84,14 @@ def spawn_basic_boxes(
                         all_available_usd_asset_paths.append(full_item_path)
                     found_in_folder += 1
         if found_in_folder > 0:
-            print(f"simple_box_spawner.py: Trovati e aggiunti {found_in_folder} asset USD da '{asset_folder_path}'.")
+            _info(f"Trovati e aggiunti {found_in_folder} asset USD da '{asset_folder_path}'.")
         else:
-            print(f"simple_box_spawner.py: AVVISO - Nessun file .usd (.USD) trovato in '{asset_folder_path}'.")
+            _warn(f" Nessun file .usd (.USD) trovato in '{asset_folder_path}'.")
     elif asset_folder_path:
-        print(f"simple_box_spawner.py: AVVISO - Percorso asset_folder_path '{asset_folder_path}' non valido.")
+        _warn(f" Percorso asset_folder_path '{asset_folder_path}' non valido.")
 
     if not all_available_usd_asset_paths:
-        print(f"simple_box_spawner.py: AVVISO - Nessun asset USD disponibile. Verranno creati solo cubi procedurali se scelti.")
+        _warn(f" Nessun asset USD disponibile. Verranno creati solo cubi procedurali se scelti.")
 
     if not get_prim_at_path(parent_path): # get_prim_at_path e di Isaac Sim, non di PXR Usd
         # Usiamo stage.GetPrimAtPath per PXR puro se necessario, ma qui va bene
@@ -81,7 +101,7 @@ def spawn_basic_boxes(
         parent_prim = stage.GetPrimAtPath(parent_path)
         if not parent_prim:
              UsdGeom.Xform.Define(stage, parent_path)
-             print(f"simple_box_spawner.py: Creato Xform genitore a '{parent_path}'.")
+             _info(f"Creato Xform genitore a '{parent_path}'.")
 
 
     created_box_prims_roots = [] # Memorizzeremo gli Xform radice degli asset/cubi
@@ -114,7 +134,7 @@ def spawn_basic_boxes(
         if not is_procedural_cube:
             prim_type_str = "asset"
             actual_asset_path_chosen = random.choice(all_available_usd_asset_paths)
-            print(f"simple_box_spawner.py: DEBUG [{box_prim_name}] Scelto asset: '{actual_asset_path_chosen}'")
+            _debug(f" [{box_prim_name}] Scelto asset: '{actual_asset_path_chosen}'")
 
             # --- 1. Calcola l'offset dal pivot al centro dell'asset (scala originale) ---
             offset_from_pivot_to_center_local_unscaled = Gf.Vec3d(0,0,0)
@@ -130,11 +150,11 @@ def spawn_basic_boxes(
                 if not world_bbox_original.GetRange().IsEmpty():
                     bbox_range_original = world_bbox_original.GetRange()
                     offset_from_pivot_to_center_local_unscaled = (bbox_range_original.GetMin() + bbox_range_original.GetMax()) / 2.0
-                    print(f"simple_box_spawner.py: DEBUG [{box_prim_name}] Offset (pivot-to-center, local UNscaled): {offset_from_pivot_to_center_local_unscaled}")
+                    _debug(f" [{box_prim_name}] Offset (pivot-to-center, local UNscaled): {offset_from_pivot_to_center_local_unscaled}")
                 else:
-                    print(f"simple_box_spawner.py: AVVISO [{box_prim_name}] BBox originale vuota. Offset {offset_from_pivot_to_center_local_unscaled}")
+                    _warn(f"{box_prim_name}] BBox originale vuota. Offset {offset_from_pivot_to_center_local_unscaled}")
             except Exception as e_measure:
-                print(f"simple_box_spawner.py: ERRORE [{box_prim_name}] Misurazione asset '{actual_asset_path_chosen}': {e_measure}")
+                _error(f" [{box_prim_name}] Misurazione asset '{actual_asset_path_chosen}': {e_measure}")
 
             # --- 2. Calcola la scala finale dell'asset ---
             asset_scale_factor = 0.005
@@ -142,7 +162,7 @@ def spawn_basic_boxes(
             scale_y = random.uniform(box_scale_min, box_scale_max) * asset_scale_factor
             scale_z = random.uniform(box_scale_min, box_scale_max) * asset_scale_factor
             final_asset_scale_np = np.array([scale_x, scale_y, scale_z])
-            print(f"simple_box_spawner.py: DEBUG [{box_prim_name}] Scala finale asset: {final_asset_scale_np}")
+            _debug(f" [{box_prim_name}] Scala finale asset: {final_asset_scale_np}")
 
             # --- 3. Crea l'Xform radice dell'asset con scala, rotazione e posizione finale ---
             # Poiche l'asset sara centrato internamente, la posizione di questo Xform radice
@@ -166,7 +186,7 @@ def spawn_basic_boxes(
             # Questo offset e gia nello spazio locale dell'asset, quindi non necessita di rotazione o scalatura qui.
             centering_translation = -offset_from_pivot_to_center_local_unscaled
             xformable_centering.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Vec3d(centering_translation))
-            print(f"simple_box_spawner.py: DEBUG [{box_prim_name}] Applicata traslazione di centratura interna: {centering_translation}")
+            _debug(f" [{box_prim_name}] Applicata traslazione di centratura interna: {centering_translation}")
 
             # --- 5. Referenzia l'asset USD come figlio dell'Xform di centratura ---
             # Il nome del prim che referenzia l'asset puo essere qualsiasi cosa, es. "AssetGeometry"
@@ -181,7 +201,7 @@ def spawn_basic_boxes(
             asset_ref_prim.GetReferences().AddReference(assetPath=actual_asset_path_chosen)
 
             if not asset_root_prim or not asset_root_prim.IsValid():
-                print(f"simple_box_spawner.py: AVVISO [{box_prim_name}] asset '{actual_asset_path_chosen}' non valido. Fallback al cubo procedurale.")
+                _warn(f"{box_prim_name}] asset '{actual_asset_path_chosen}' non valido. Fallback al cubo procedurale.")
                 is_procedural_cube = True
                 prim_type_str = "cubo procedurale"
 
@@ -204,10 +224,10 @@ def spawn_basic_boxes(
 
         if not asset_root_prim or not asset_root_prim.IsValid():
             asset_info = f"(asset: {actual_asset_path_chosen})" if actual_asset_path_chosen else "(cubo procedurale)"
-            print(f"simple_box_spawner.py: ERRORE [{box_prim_name}] Creazione prim root '{asset_root_prim_path}' fallita {asset_info}.")
+            _error(f" [{box_prim_name}] Creazione prim root '{asset_root_prim_path}' fallita {asset_info}.")
             continue
 
-        print(f"simple_box_spawner.py: Prim root '{asset_root_prim.GetPath()}' ({prim_type_str}) creato.")
+        _info(f"Prim root '{asset_root_prim.GetPath()}' ({prim_type_str}) creato.")
 
         # --- Logica di applicazione Materiale PBR ---
         # Ora dobbiamo decidere a quale prim applicare il materiale.
@@ -223,7 +243,7 @@ def spawn_basic_boxes(
             if asset_geometry_prim and asset_geometry_prim.IsValid():
                  material_target_prim_for_binding = asset_geometry_prim # Le mesh saranno figlie di questo
             else:
-                print(f"simple_box_spawner.py: AVVISO [{box_prim_name}] Non trovato il prim della geometria dell'asset per il binding del materiale.")
+                _warn(f"{box_prim_name}] Non trovato il prim della geometria dell'asset per il binding del materiale.")
                 # Non fare binding se non troviamo il contenitore della geometria
 
         material_applied_to_this_prim_group = False
@@ -242,27 +262,27 @@ def spawn_basic_boxes(
                     if is_procedural_cube: # Cubo procedurale, lega direttamente al prim radice (che e il cubo)
                         try:
                             UsdShade.MaterialBindingAPI(asset_root_prim).Bind(material_to_bind)
-                            print(f"simple_box_spawner.py: Materiale PBR '{selected_material_path}' applicato a {prim_type_str} '{asset_root_prim.GetPath()}'.")
+                            _info(f"Materiale PBR '{selected_material_path}' applicato a {prim_type_str} '{asset_root_prim.GetPath()}'.")
                             material_applied_to_this_prim_group = True
                         except Exception as e_bind:
-                            print(f"simple_box_spawner.py: ERRORE binding materiale a {prim_type_str} '{asset_root_prim.GetPath()}': {e_bind}")
+                            _error(f" binding materiale a {prim_type_str} '{asset_root_prim.GetPath()}': {e_bind}")
                     else: # Asset USD, itera sulle mesh sotto 'material_target_prim_for_binding'
                         meshes_found_in_asset_count = 0
                         for descendant_prim in Usd.PrimRange(material_target_prim_for_binding): # Cerca sotto il prim che contiene la geometria
                             if descendant_prim.IsA(UsdGeom.Mesh):
                                 try:
                                     UsdShade.MaterialBindingAPI(descendant_prim).Bind(material_to_bind)
-                                    print(f"simple_box_spawner.py: Materiale PBR '{selected_material_path}' applicato alla mesh '{descendant_prim.GetPath()}'.")
+                                    _info(f"Materiale PBR '{selected_material_path}' applicato alla mesh '{descendant_prim.GetPath()}'.")
                                     meshes_found_in_asset_count += 1
                                 except Exception as e_bind_mesh:
-                                    print(f"simple_box_spawner.py: ERRORE binding materiale a mesh '{descendant_prim.GetPath()}': {e_bind_mesh}")
+                                    _error(f" binding materiale a mesh '{descendant_prim.GetPath()}': {e_bind_mesh}")
                         
                         if meshes_found_in_asset_count > 0:
                             material_applied_to_this_prim_group = True
                         else:
-                            print(f"simple_box_spawner.py: AVVISO - Nessuna mesh trovata sotto '{material_target_prim_for_binding.GetPath()}' per materiale.")
+                            _warn(f" Nessuna mesh trovata sotto '{material_target_prim_for_binding.GetPath()}' per materiale.")
                 else:
-                    print(f"simple_box_spawner.py: AVVISO - Materiale PBR '{selected_material_path}' non trovato o non valido.")
+                    _warn(f" Materiale PBR '{selected_material_path}' non trovato o non valido.")
 
         if is_procedural_cube and not material_applied_to_this_prim_group: # Per cubi procedurali
             gprim_api = UsdGeom.Gprim(asset_root_prim) # Il prim radice e il cubo
@@ -270,7 +290,7 @@ def spawn_basic_boxes(
                 color_primvar = gprim_api.CreateDisplayColorPrimvar()
                 if color_primvar:
                     color_primvar.Set([default_color])
-                    print(f"simple_box_spawner.py: Colore fallback applicato a {prim_type_str} '{asset_root_prim.GetPath()}'.")
+                    _info(f"Colore fallback applicato a {prim_type_str} '{asset_root_prim.GetPath()}'.")
                 # ... (else per errore creazione primvar)
             # ... (else per non Gprim)
 
@@ -300,5 +320,5 @@ def spawn_basic_boxes(
         created_box_prims_roots.append(asset_root_prim)
         spawn_index += 1
 
-    print(f"simple_box_spawner.py: Generazione di {len(created_box_prims_roots)} scatole completata.")
+    _info(f"Generazione di {len(created_box_prims_roots)} scatole completata.")
     return created_box_prims_roots

@@ -16,6 +16,7 @@ from .types import GripOptions, SpawnedEntities
 from depal.replicator import data as replicator_data
 from depal.scene import setup as scene_setup
 from depal.stage.io import StageIO
+from depal.utils.logger import log_debug, log_info, log_section, log_warning
 
 
 def clean_output_directory(root_dir: Path, keep: Iterable[str] = ("rgb", "camera_params")) -> None:
@@ -104,10 +105,10 @@ class SimulationPipeline:
                 )
                 simulation_app.update()
             else:
-                print("Istanziazione asset principale disabilitata.")
+                log_warning("Asset principale non instanziato (config disabilitata)")
 
             if random.random() < probability_activation_wall:
-                print("Muri invisibili attivati.")
+                log_info("Muri invisibili attivati")
                 scene_setup.spawn_invisible_walls(stage)
 
             spawned_objects: List[str] = []
@@ -199,11 +200,11 @@ class SimulationPipeline:
                 simulation_app.update()
 
             clean_output_directory(output_dir / "right")
-            print(f"--- Generazione immagine {img_idx}/{num_images} completata ---")
+            log_section(f"Immagine {img_idx}/{num_images} completata")
 
     def regenerate_data(self, config: Dict[str, object], options: Sequence[str]) -> None:
         if not self._last_spawned.any():
-            print("Nessuna entità istanziata in precedenza, impossibile rigenerare dati.")
+            log_warning("Rigenerazione dati richiesta senza entita precedenti: operazione annullata")
             return
 
         simulation_app = self._env.initialize()
@@ -267,7 +268,7 @@ class SimulationPipeline:
         usd_context = modules.omni_usd.get_context()
         if usd_context.get_stage():
             usd_context.close_stage()
-            print("Stage chiuso.")
+            log_debug("USD stage chiuso")
 
         for _ in range(200):
             simulation_app.update()

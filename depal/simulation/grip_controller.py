@@ -13,6 +13,7 @@ import numpy as np
 from depal.stage.io import StageIO
 from depal.utils.image_pick import project_circle_topdown
 from depal.utils.k_matrix import generate_k_matrix
+from depal.utils.logger import log_debug, log_error, log_info, log_warning, log_section
 
 from .environment import SimulationEnvironment
 from .types import GripOptions, SpawnedEntities
@@ -68,7 +69,7 @@ class GripWorkflow:
             try:
                 final_image_path.unlink()
             except OSError as exc:
-                print(f"Errore durante l'eliminazione del file finale {final_image_path}: {exc}")
+                log_warning(f"Grip: impossibile eliminare '{final_image_path}': {exc}")
 
         projection_records: List[Dict[str, object]] = []
 
@@ -122,23 +123,23 @@ class GripWorkflow:
         object_paths = list(spawned_entities.objects if ycb_cfg.get("enable") else [])
         selected_paths = box_paths or object_paths
         if not selected_paths:
-            print("Box insufficienti o box spawning disabilitato.")
+            log_warning("Grip: nessun target disponibile per il surface gripper")
             return []
 
         cfg = self._surface_gripper_config()
         projections: List[Dict[str, object]] = []
 
         for index, target_path in enumerate(selected_paths):
-            print(f"\n  Processing data collection for target {index + 1}/{len(selected_paths)}: {target_path}")
+            log_section(f"Surface gripper - target {index + 1}/{len(selected_paths)}: {target_path}")
             prim_deformable = self._is_prim_deformable(stage, target_path)
             if prim_deformable:
-                print(f"   ATTENZIONE: L'oggetto '{target_path}' è deformabile.")
+                log_warning(f"Grip: il target {target_path} e deformabile, uso parametri adattivi")
 
             physical_parts = self._find_physical_parts(stage, target_path)
             if not physical_parts:
-                print(f"-> Nessuna parte fisica trovata per {target_path}. Salto.")
+                log_warning(f"Grip: nessuna parte fisica trovata per {target_path}, target saltato")
                 continue
-            print(f"-> Trovate {len(physical_parts)} parti fisiche: {physical_parts}")
+            log_debug(f"Grip: parti fisiche trovate per {target_path}: {physical_parts}")
 
             temp_sampler = SurfaceGripperDirectScript(
                 target_object_prim_path=target_path,
@@ -165,10 +166,10 @@ class GripWorkflow:
 
             candidate_positions = temp_sampler.sample_grasp_grid(target_path)
             del temp_sampler
-            print(f"    Found {len(candidate_positions)} potential grasp positions.")
+            log_info(f"Grip: {len(candidate_positions)} posizioni candidate per il target")
 
             for attempt_idx, position in enumerate(candidate_positions):
-                print(f"\n      Processing grasp attempt {attempt_idx + 1}/{len(candidate_positions)} for {target_path}")
+                log_info(f"Grip: tentativo {attempt_idx + 1}/{len(candidate_positions)} sul target {target_path}")
                 runner = SurfaceGripperDirectScript(
                     target_object_prim_path=target_path,
                     grasp_offset_from_top=cfg["grasp_offset"],
@@ -210,7 +211,7 @@ class GripWorkflow:
                     }
                     projections.append(projection_info)
                 else:
-                    print("      WARNING: initial_cone_placement_position_world non definita, salto raccolta proiezioni.")
+                    log_warning("Grip: nessuna posizione iniziale del cono disponibile, salto proiezione")
 
                 self._stage_io.load_stage("stage_freeze_temp/saved_stage.usd")
                 for _ in range(50):
@@ -267,25 +268,25 @@ class GripWorkflow:
             target_paths = list(spawned_entities.objects)
 
         if not target_paths:
-            print("Nessun oggetto disponibile per la pinza.")
+            log_warning("Pinza: nessun oggetto da afferrare")
             return
 
         grasp_data: Dict[str, List[Dict[str, object]]] = {}
         robot, target_prim = pinza_module.setup_scene(target_paths[0], simulation_app)
 
         for index, target_path in enumerate(target_paths):
-            print(f"\n  Processing pinza grasp for {target_path}")
+            log_section(f"Pinza - target {target_path}")
             self._stage_io.load_stage("stage_freeze_temp/saved_stage.usd")
             robot, target_prim = pinza_module.setup_scene(target_path, simulation_app)
 
             poses = pinza_module.generate_grasp_poses(target_prim)
             if not poses:
-                print(f"ATTENZIONE: Nessuna posa valida generata per {target_path}.")
+                log_warning(f"Pinza: nessuna posa valida per {target_path}")
                 continue
 
             results_for_object: List[Dict[str, object]] = []
             for attempt_idx, (pos, quat) in enumerate(poses):
-                print(f"\n--- Pinza attempt {attempt_idx + 1}/{len(poses)} for {target_path} ---")
+                log_info(f"Pinza: tentativo {attempt_idx + 1}/{len(poses)} per {target_path}")
                 start_time = time.time()
                 robot.set_world_pose(position=pos, orientation=quat)
 
@@ -311,7 +312,7 @@ class GripWorkflow:
                     simulation_app.update()
                     fsm.step()
                     if time.time() - start_time > timeout_s:
-                        print(f"!!! Timeout di {timeout_s} secondi raggiunto. Risultato impostato su FAILURE. !!!")
+                        log_warning(f"Pinza: timeout di {timeout_s}s raggiunto, tentativo marcato come FAILURE")
                         fsm.state = pinza_module.State.FINISH
                         fsm.current_result = pinza_module.GraspResult.FAILURE
                         break
@@ -347,9 +348,9 @@ class GripWorkflow:
             file_path = output_dir / "grasp_results.json"
             with file_path.open("w", encoding="utf-8") as handle:
                 json.dump(grasp_data, handle, indent=4)
-            print(f"Dati di presa salvati in {file_path}")
+            log_info(f"Pinza: risultati salvati su {file_path}")
         else:
-            print("Nessun dato di presa raccolto per la pinza.")
+            log_warning("Pinza: nessun dato raccolto")
 
     # --------------------------------------------------------------------- #
     # Camera helpers
@@ -391,11 +392,11 @@ class GripWorkflow:
         )
         json_file_path = Path(self._script_dir) / json_relative_path
         if not json_file_path.exists():
-            print(f"ATTENZIONE: File JSON globale non trovato: {json_file_path}. Impossibile generare K_matrix.")
+            log_warning(f"Grip: file camera params non trovato ({json_file_path}), K_matrix non disponibile")
             return None
 
         k_matrix = generate_k_matrix(str(json_file_path))
-        print(f"K_matrix globale generata: {k_matrix}")
+        log_info(f"Grip: K_matrix generata {k_matrix}")
         return k_matrix
 
     def _generate_projection_image(
@@ -420,7 +421,7 @@ class GripWorkflow:
                 roll_deg=90.0,
                 circle_color=proj.get("circle_color"),
             )
-        print(f"\n--- Final combined image saved to: {output_path} ---")
+        log_info(f"Grip: immagine combinata salvata su {output_path}")
 
     # --------------------------------------------------------------------- #
     # Scene helpers
