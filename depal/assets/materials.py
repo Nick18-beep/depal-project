@@ -81,40 +81,24 @@ class MaterialFactory:
         self._config = config or {}
 
         self._parameter_definitions: Dict[str, tuple[str, object, callable]] = {
-            "metallic_range": ("metallic_constant", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
-            "roughness_range": (
-                "reflection_roughness_constant",
-                self._Sdf.ValueTypeNames.Float,
-                lambda r: random.uniform(*r),
-            ),
-            "specular_level_range": ("specular_level", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "metallic_range": ("normal_roughness_bias", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "roughness_range": ("clearcoat_roughness", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "specular_level_range": ("specular_reflectance", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
             "base_color_rgb_range": (
                 "diffuse_color_constant",
                 self._Sdf.ValueTypeNames.Float3,
                 lambda r: self._Gf.Vec3f(*(random.uniform(a, b) for a, b in zip(*r))),
             ),
             "emissive_rgb_range": (
-                "emissive_color",
+                "emission_color_constant",
                 self._Sdf.ValueTypeNames.Float3,
                 lambda r: self._Gf.Vec3f(*(random.uniform(a, b) for a, b in zip(*r))),
             ),
-            "emissive_strength_range": (
-                "emissive_intensity",
-                self._Sdf.ValueTypeNames.Float,
-                lambda r: random.uniform(*r),
-            ),
-            "clearcoat_intensity_range": (
-                "clearcoat_weight",
-                self._Sdf.ValueTypeNames.Float,
-                lambda r: random.uniform(*r),
-            ),
-            "clearcoat_roughness_range": (
-                "clearcoat_reflection_roughness",
-                self._Sdf.ValueTypeNames.Float,
-                lambda r: random.uniform(*r),
-            ),
+            "emissive_strength_range": ("emission_intensity_constant", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "clearcoat_intensity_range": ("clearcoat", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "clearcoat_roughness_range": ("clearcoat_roughness", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
             "ior_range": ("clearcoat_ior", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
-            "normal_intensity_range": ("bump_factor", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "normal_intensity_range": ("normalmap_scale", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
         }
 
     def create_from_directory(self, texture_directory: Path) -> List[MaterialComponent]:
