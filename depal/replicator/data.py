@@ -48,21 +48,6 @@ def _get_omni_usd():
     return omni.usd
 
 
-def _info(message: str) -> None:
-    log_info(f"Replicator: {message}")
-
-
-def _warn(message: str) -> None:
-    log_warning(f"Replicator: {message}")
-
-
-def _error(message: str) -> None:
-    log_error(f"Replicator: {message}")
-
-
-def _section(message: str) -> None:
-    log_section(f"Replicator | {message}")
-
 SPLIT_CLASSES: Set[str] = {"box","ycb_object"}
 IGNORE_CLASSES: Set[str] = {"BACKGROUND", "UNLABELLED"}
 RGBA_Tuple = Tuple[int, int, int, int]
@@ -555,7 +540,7 @@ def run_replicator_data_generation(
             rep_cfg.get("stereo_origin_y", 0.0),
             float(main_cam_world_pos[2]),
         )
-        _info("posizione camera stereo", stereo_position)
+        _info(f"Posizione camera stereo: {stereo_position}")
 
    
         stereo = rep_module.create.stereo_camera(
