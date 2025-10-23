@@ -6,9 +6,10 @@ import random
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
-from pxr import Gf, Sdf, UsdShade
+if TYPE_CHECKING:  # pragma: no cover
+    from pxr import Gf, Sdf, UsdShade, Usd
 
 
 SUPPORTED_TEXTURE_EXTENSIONS: Sequence[str] = (
@@ -26,7 +27,7 @@ def _safe_material_name(texture_file: Path) -> str:
     return f"Mtl_{''.join(c if c.isalnum() else '_' for c in texture_file.stem)}"
 
 
-def _format_vec3(value: Gf.Vec3f) -> str:
+def _format_vec3(value) -> str:
     return f"({value[0]:.2f}, {value[1]:.2f}, {value[2]:.2f})"
 
 
@@ -36,13 +37,19 @@ def _get_omni_pbr():
     return OmniPBR
 
 
+def _get_pxr_material_modules():
+    from pxr import Gf, Sdf, UsdShade, Usd  # pylint: disable=import-outside-toplevel
+
+    return Gf, Sdf, UsdShade, Usd
+
+
 @dataclass
 class MaterialComponent:
     """Represents the relevant USD prims created for an OmniPBR material."""
 
-    material_prim: Usd.Prim
-    shader_prims: List[Usd.Prim]
-    material_schema: UsdShade.Material
+    material_prim: "Usd.Prim"
+    shader_prims: List["Usd.Prim"]
+    material_schema: "UsdShade.Material"
 
     def as_legacy_tuple(self):
         """Return the legacy tuple format used by the previous codebase."""
@@ -67,38 +74,47 @@ class MaterialFactory:
                 "OmniPBR non disponibile. Assicurati che Isaac Sim sia correttamente configurato."
             ) from exc
 
+        self._Gf, self._Sdf, self._UsdShade, _ = _get_pxr_material_modules()
         self._stage = stage
         self._simulation_app = simulation_app
         self._base_material_path = base_material_path
         self._config = config or {}
 
-        self._parameter_definitions: Dict[str, tuple[str, Sdf.ValueTypeName, callable]] = {
-            "metallic_range": ("metallic_constant", Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+        self._parameter_definitions: Dict[str, tuple[str, object, callable]] = {
+            "metallic_range": ("metallic_constant", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
             "roughness_range": (
                 "reflection_roughness_constant",
-                Sdf.ValueTypeNames.Float,
+                self._Sdf.ValueTypeNames.Float,
                 lambda r: random.uniform(*r),
             ),
-            "specular_level_range": ("specular_level", Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "specular_level_range": ("specular_level", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
             "base_color_rgb_range": (
                 "diffuse_color_constant",
-                Sdf.ValueTypeNames.Float3,
-                lambda r: Gf.Vec3f(*(random.uniform(a, b) for a, b in zip(*r))),
+                self._Sdf.ValueTypeNames.Float3,
+                lambda r: self._Gf.Vec3f(*(random.uniform(a, b) for a, b in zip(*r))),
             ),
             "emissive_rgb_range": (
                 "emissive_color",
-                Sdf.ValueTypeNames.Float3,
-                lambda r: Gf.Vec3f(*(random.uniform(a, b) for a, b in zip(*r))),
+                self._Sdf.ValueTypeNames.Float3,
+                lambda r: self._Gf.Vec3f(*(random.uniform(a, b) for a, b in zip(*r))),
             ),
-            "emissive_strength_range": ("emissive_intensity", Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
-            "clearcoat_intensity_range": ("clearcoat_weight", Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
-            "clearcoat_roughness_range": (
-                "clearcoat_reflection_roughness",
-                Sdf.ValueTypeNames.Float,
+            "emissive_strength_range": (
+                "emissive_intensity",
+                self._Sdf.ValueTypeNames.Float,
                 lambda r: random.uniform(*r),
             ),
-            "ior_range": ("clearcoat_ior", Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
-            "normal_intensity_range": ("bump_factor", Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "clearcoat_intensity_range": (
+                "clearcoat_weight",
+                self._Sdf.ValueTypeNames.Float,
+                lambda r: random.uniform(*r),
+            ),
+            "clearcoat_roughness_range": (
+                "clearcoat_reflection_roughness",
+                self._Sdf.ValueTypeNames.Float,
+                lambda r: random.uniform(*r),
+            ),
+            "ior_range": ("clearcoat_ior", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
+            "normal_intensity_range": ("bump_factor", self._Sdf.ValueTypeNames.Float, lambda r: random.uniform(*r)),
         }
 
     def create_from_directory(self, texture_directory: Path) -> List[MaterialComponent]:
@@ -139,30 +155,30 @@ class MaterialFactory:
         self._pump_simulation_frames(2)
 
         material_prim = self._stage.GetPrimAtPath(material_path)
-        material_schema = UsdShade.Material(material_prim)
-        shader_prim = next((child for child in material_prim.GetChildren() if child.IsA(UsdShade.Shader)), None)
+        material_schema = self._UsdShade.Material(material_prim)
+        shader_prim = next((child for child in material_prim.GetChildren() if child.IsA(self._UsdShade.Shader)), None)
         if not shader_prim:
             print(f"Nessuno shader trovato sotto {material_path}")
             return MaterialComponent(material_prim, [], material_schema)
 
-        shader = UsdShade.Shader(shader_prim)
+        shader = self._UsdShade.Shader(shader_prim)
         applied_values = self._apply_configured_parameters(shader)
         self._apply_emissive_probability(shader, applied_values)
 
         # Enable key toggles to ensure OmniPBR behaves as expected.
-        self._set_shader_input(shader, "enable_emission", Sdf.ValueTypeNames.Bool, True)
-        self._set_shader_input(shader, "enable_clearcoat", Sdf.ValueTypeNames.Bool, True)
+        self._set_shader_input(shader, "enable_emission", self._Sdf.ValueTypeNames.Bool, True)
+        self._set_shader_input(shader, "enable_clearcoat", self._Sdf.ValueTypeNames.Bool, True)
 
         if applied_values:
             formatted = []
             for key, value in applied_values.items():
-                if isinstance(value, Gf.Vec3f):
+                if isinstance(value, self._Gf.Vec3f):
                     formatted.append(f"{key}={_format_vec3(value)}")
                 elif isinstance(value, float):
                     formatted.append(f"{key}={value:.2f}")
                 else:
                     formatted.append(f"{key}={value}")
-            print(f"  · {'; '.join(formatted)}")
+            print(f"   {'; '.join(formatted)}")
 
         return MaterialComponent(material_prim, [shader_prim], material_schema)
 
@@ -184,27 +200,27 @@ class MaterialFactory:
                 applied[shader_input] = value
         return applied
 
-    def _apply_emissive_probability(self, shader: UsdShade.Shader, applied: Dict[str, object]) -> None:
+    def _apply_emissive_probability(self, shader, applied: Dict[str, object]) -> None:
         if "emissive_probability" not in self._config:
             return
 
         probability = self._config["emissive_probability"]
         if not isinstance(probability, (float, int)) or not (0.0 <= probability <= 1.0):
-            print(f"   · emissive_probability ({probability}) non valida o fuori range [0,1]. Ignorata.")
+            print(f"    emissive_probability ({probability}) non valida o fuori range [0,1]. Ignorata.")
             return
 
         if random.random() < probability:
             return  # Emission stays enabled
 
-        black = Gf.Vec3f(0.0, 0.0, 0.0)
-        disabled = self._set_shader_input(shader, "emissive_color", Sdf.ValueTypeNames.Float3, black)
-        disabled |= self._set_shader_input(shader, "emissive_intensity", Sdf.ValueTypeNames.Float, 0.0)
+        black = self._Gf.Vec3f(0.0, 0.0, 0.0)
+        disabled = self._set_shader_input(shader, "emissive_color", self._Sdf.ValueTypeNames.Float3, black)
+        disabled |= self._set_shader_input(shader, "emissive_intensity", self._Sdf.ValueTypeNames.Float, 0.0)
         if disabled:
             applied["emissive_color"] = black
             applied["emissive_intensity"] = 0.0
-            print(f"   · emissione disattivata (probabilità ON: {probability * 100:.1f}%)")
+            print(f"    emissione disattivata (probabilita ON: {probability * 100:.1f}%)")
 
-    def _set_shader_input(self, shader: UsdShade.Shader, name: str, value_type, value) -> bool:
+    def _set_shader_input(self, shader, name: str, value_type, value) -> bool:
         input_attr = shader.GetInput(name)
         if not input_attr:
             return False

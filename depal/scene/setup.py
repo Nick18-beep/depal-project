@@ -262,20 +262,19 @@ def setup_main_camera(stage, prims_utils_module, Gf_module, UsdGeom_module, cam_
 #  scene_setup_utils.py
 #  Pareti invisibili allineate al container / pallet principale
 # ================================================================
-from pxr import Usd, UsdGeom, UsdPhysics, Gf
 import typing as T
 import math
 
 # -----------------------------------------------------------------
-# 0.  estrai scala da Matrix4d – compatibile USD 22-24
+# 0.  estrai scala da Matrix4d  compatibile USD 22-24
 # -----------------------------------------------------------------
 def _extract_scale(mat: "Gf.Matrix4d") -> "Gf.Vec3d":
-    Gf, _, _, _ = _get_pxr_modules()
     """Restituisce (sx, sy, sz) anche se Matrix4d non ha ExtractScale()."""
-    if hasattr(mat, "ExtractScale"):                      # USD ≥ 23
+    Gf, _, _, _ = _get_pxr_modules()
+    if hasattr(mat, "ExtractScale"):                      # USD >= 23
         return mat.ExtractScale()
 
-    # USD 22 – lunghezza dei vettori colonna
+    # USD 22  lunghezza dei vettori colonna
     c0 = Gf.Vec3d(mat[0][0], mat[0][1], mat[0][2])
     c1 = Gf.Vec3d(mat[1][0], mat[1][1], mat[1][2])
     c2 = Gf.Vec3d(mat[2][0], mat[2][1], mat[2][2])
@@ -286,27 +285,24 @@ def _extract_scale(mat: "Gf.Matrix4d") -> "Gf.Vec3d":
 # helper: scala locale del SOLO prim container
 # -----------------------------------------------------------------
 def _local_scale(prim: "Usd.Prim") -> "Gf.Vec3d":
+    """Calcola la scala locale del prim ignorando trasformazioni dei parent."""
     Gf, _, UsdGeom, _ = _get_pxr_modules()
-    """
-    Ritorna la scala (sx, sy, sz) definita sugli xformOp del prim stesso,
-    ignorando i trasform parent e i figli. Compatibile USD 22-24.
-    """
     xf = UsdGeom.Xformable(prim)
 
-    # USD ≥ 23: utilizza direttamente l’API comoda
+    # USD >= 23: utilizza direttamente l'API comoda
     if hasattr(xf, "ComputeLocalToParentTransform"):
         mat_loc = xf.ComputeLocalToParentTransform(Usd.TimeCode.Default())
         return _extract_scale(mat_loc)
 
     # ---------- Fallback USD 22 -----------------------------------
     xcache    = UsdGeom.XformCache()
-    mat_world = xcache.GetLocalToWorldTransform(prim)          # T · R · S del prim
+    mat_world = xcache.GetLocalToWorldTransform(prim)          # T  R  S del prim
     parent    = prim.GetParent()
     if parent and parent.IsValid():
-        mat_parent = xcache.GetLocalToWorldTransform(parent)   # T · R · S del padre
+        mat_parent = xcache.GetLocalToWorldTransform(parent)   # T  R  S del padre
         mat_loc    = mat_world * Gf.Matrix4d(mat_parent).GetInverse()  # locale
     else:
-        mat_loc = mat_world                                    # prim è root
+        mat_loc = mat_world                                    # prim e root
 
     return _extract_scale(mat_loc)
 
@@ -328,7 +324,7 @@ def _find_main_asset_prim(stage: "Usd.Stage") -> str:
 
 
 # -----------------------------------------------------------------
-# 2.  bound locale (dimensioni, centro) – niente TRS del container
+# 2.  bound locale (dimensioni, centro)  niente TRS del container
 # -----------------------------------------------------------------
 def _bbox_local(prim: "Usd.Prim") -> T.Tuple["Gf.Vec3d", "Gf.Vec3d"]:
     Gf, _, UsdGeom, _ = _get_pxr_modules()
@@ -342,7 +338,7 @@ def _bbox_local(prim: "Usd.Prim") -> T.Tuple["Gf.Vec3d", "Gf.Vec3d"]:
 
 
 # -----------------------------------------------------------------
-# 3.  utilities fisica + invisibilità
+# 3.  utilities fisica + invisibilita
 # -----------------------------------------------------------------
 def _add_physics(prim):
     _, Usd, _, UsdPhysics = _get_pxr_modules()
@@ -361,30 +357,29 @@ def _hide(prim):
 
 
 def _quat_to_euler_xyz(q: "Gf.Quatd") -> "Gf.Vec3d":
+    """Converte un quaternione in angoli di Eulero XYZ (gradi)."""
     Gf, _, _, _ = _get_pxr_modules()
-    """Converte quaternion → Eulero XYZ (°)."""
     w, x, y, z = q.GetReal(), q.GetImaginary()[0], q.GetImaginary()[1], q.GetImaginary()[2]
-    # roll (X)
-    sinr = 2*(w*x + y*z); cosr = 1 - 2*(x*x + y*y)
+    sinr = 2 * (w * x + y * z)
+    cosr = 1 - 2 * (x * x + y * y)
     roll = math.degrees(math.atan2(sinr, cosr))
-    # pitch (Y)
-    sinp = 2*(w*y - z*x)
+
+    sinp = 2 * (w * y - z * x)
     pitch = math.degrees(math.asin(max(-1, min(1, sinp))))
-    # yaw (Z)
-    siny = 2*(w*z + x*y); cosy = 1 - 2*(y*y + z*z)
+
+    siny = 2 * (w * z + x * y)
+    cosy = 1 - 2 * (y * y + z * z)
     yaw = math.degrees(math.atan2(siny, cosy))
     return Gf.Vec3d(roll, pitch, yaw)
 
+
 def _local_orientation(prim: "Usd.Prim") -> "Gf.Vec3d":
+    """Restituisce l'orientamento locale (Euler XYZ in gradi)."""
     Gf, _, UsdGeom, _ = _get_pxr_modules()
-    """
-    Restituisce orientamento locale (Euler XYZ in °).
-    Priorità: xformOp:orient (quatd) → rotateXYZ → (0,0,0).
-    """
     xf = UsdGeom.Xformable(prim)
     for op in xf.GetOrderedXformOps():
         if op.GetOpType() == UsdGeom.XformOp.TypeOrient:
-            q = op.Get()                                   # Gf.Quatd
+            q = op.Get()  # Gf.Quatd
             return _quat_to_euler_xyz(q)
     for op in xf.GetOrderedXformOps():
         if op.GetOpType() == UsdGeom.XformOp.TypeRotateXYZ:
@@ -398,11 +393,8 @@ def spawn_invisible_walls(stage: "Usd.Stage",
                           suffix="__walls",
                           thickness=0.001,
                           extra_height=2.8) -> T.List[str]:
+    """Crea pareti invisibili attorno al container principale."""
     Gf, Usd, UsdGeom, UsdPhysics = _get_pxr_modules()
-    """
-    Crea 4 pareti invisibili attorno al container, scalate e ruotate come
-    il container, con base a pavimento.
-    """
     tgt_path = _find_main_asset_prim(stage)
     tgt      = stage.GetPrimAtPath(tgt_path)
 
@@ -426,7 +418,7 @@ def spawn_invisible_walls(stage: "Usd.Stage",
     offs = [ Gf.Vec3d( sx2+t2x, 0, 0), Gf.Vec3d(-sx2-t2x, 0, 0),
              Gf.Vec3d(0,  sy2+t2y, 0), Gf.Vec3d(0, -sy2-t2y, 0)]
 
-    grp = UsdGeom.Xform.Define(stage, f"{tgt_path}{suffix}")  # figlio → eredita T R S
+    grp = UsdGeom.Xform.Define(stage, f"{tgt_path}{suffix}")  # figlio -> eredita T R S
 
     wall_paths = []
     for i, (off, sc) in enumerate(zip(offs, scales)):
@@ -436,7 +428,7 @@ def spawn_invisible_walls(stage: "Usd.Stage",
         #rendo invisibile
         UsdGeom.Imageable(cube).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
 
-         # 2) rotazione: copia l'orient (quat) o, se non c'è, il rotateXYZ
+         # 2) rotazione: copia l'orient (quat) o, se non c'e, il rotateXYZ
         xf_tgt = UsdGeom.Xformable(tgt)
         quat   = None
         for op in xf_tgt.GetOrderedXformOps():
@@ -457,7 +449,7 @@ def spawn_invisible_walls(stage: "Usd.Stage",
         
        
 
-        # 3) scala (ricorda: Cube = 2 unità)
+        # 3) scala (ricorda: Cube = 2 unita)
         UsdGeom.Xformable(cube).AddScaleOp().Set(sc)
 
         _add_physics(cube)
@@ -465,7 +457,7 @@ def spawn_invisible_walls(stage: "Usd.Stage",
 
     # debug
     print("[DEBUG] scala locale container :", scl)
-    print("[DEBUG] orientazione (XYZ°)     :", _local_orientation(tgt))
+    print("[DEBUG] orientazione (XYZ deg) :", _local_orientation(tgt))
     print("[DEBUG] size scalate (L P H)    :", size)
 
     return wall_paths
@@ -474,8 +466,8 @@ def spawn_invisible_walls(stage: "Usd.Stage",
 # 5.  Disattiva / rimuove pareti
 # -----------------------------------------------------------------
 def disable_walls(stage: "Usd.Stage", wall_paths, remove=True):
-    _, _, UsdGeom, UsdPhysics = _get_pxr_modules()
     """Disabilita (o elimina) i collider specificati."""
+    _, _, UsdGeom, UsdPhysics = _get_pxr_modules()
     for p in wall_paths:
         prim = stage.GetPrimAtPath(p)
         if not prim:
