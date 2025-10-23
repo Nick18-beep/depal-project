@@ -15,7 +15,7 @@ from depal.utils.logger import log_debug, log_error, log_info, log_section, log_
 try:
     import cv2
 except ImportError:
-    _info("IMPORT ERROR: OpenCV (cv2) non trovato. Necessario per lo splitting della segmentazione.")
+    _warn("IMPORT ERROR: OpenCV (cv2) non trovato. Necessario per lo splitting della segmentazione.")
 cv2 = None
 
 _PXR_CACHE = None
@@ -253,7 +253,7 @@ def process_stereo_images_minimal(
     """
 
 
-    _info(f"--- Inizio Processo Minimale Stereo ---")
+    _section("Processo stereo minimale")
     _info(f"Img Sinistra: {left_image_path}")
     _info(f"Img Destra: {right_image_path}")
     _info(f"Dimensioni Img Input: {image_width_px}x{image_height_px} px")
@@ -268,7 +268,7 @@ def process_stereo_images_minimal(
         cameraAperture
     )
     if focal_length_px_calculated is None:
-        _info("Errore nel calcolo della lunghezza focale in pixel. Interruzione.")
+        _error("Errore nel calcolo della lunghezza focale in pixel. Interruzione.")
         return False
     
     baseline_to_use_meters = baseline_given # Usa la costante globale
@@ -301,12 +301,12 @@ def process_stereo_images_minimal(
 
     # Verifica e/o ridimensiona le immagini alle dimensioni specificate
     if imgL_bgr.shape[1] != image_width_px or imgL_bgr.shape[0] != image_height_px:
-        _info(f"Avviso: L'immagine sinistra {left_image_path} ha dimensioni {imgL_bgr.shape[1]}x{imgL_bgr.shape[0]},"
+        _warn(f"Avviso: L'immagine sinistra {left_image_path} ha dimensioni {imgL_bgr.shape[1]}x{imgL_bgr.shape[0]},"
               f" ma sono state specificate {image_width_px}x{image_height_px}. Ridimensionamento...")
         imgL_bgr = cv2.resize(imgL_bgr, (image_width_px, image_height_px), interpolation=cv2.INTER_AREA)
     
     if imgR_bgr.shape[1] != image_width_px or imgR_bgr.shape[0] != image_height_px:
-        _info(f"Avviso: L'immagine destra {right_image_path} ha dimensioni {imgR_bgr.shape[1]}x{imgR_bgr.shape[0]},"
+        _warn(f"Avviso: L'immagine destra {right_image_path} ha dimensioni {imgR_bgr.shape[1]}x{imgR_bgr.shape[0]},"
               f" ma sono state specificate {image_width_px}x{image_height_px}. Ridimensionamento...")
         imgR_bgr = cv2.resize(imgR_bgr, (image_width_px, image_height_px), interpolation=cv2.INTER_AREA)
 
@@ -328,7 +328,7 @@ def process_stereo_images_minimal(
 
 
     if depth_map_mm is None:
-        _info("Calcolo della mappa di profondita fallito.")
+        _warn("Calcolo della mappa di profondita fallito")
         return False
 
 
@@ -361,7 +361,7 @@ def process_stereo_images_minimal(
         return False
 
 
-    _info(f"--- Processo Minimale Stereo Completato ---")
+    _section("Processo stereo minimale completato")
     return True
 
 
@@ -396,7 +396,7 @@ def split_rgb_instance_segmentation(
     current_split_classes: Set[str], current_ignore_classes: Set[str]
 ) -> Tuple[Optional[str], Optional[str], bool]:
     if cv2 is None:
-        _info("   Errore: cv2 non disponibile per split_rgb_instance_segmentation.")
+        _error("   Errore: cv2 non disponibile per split_rgb_instance_segmentation.")
         return None, None, False
     img = _load_rgba(image_path)
     if img is None: return None, None, False
@@ -631,13 +631,13 @@ def run_replicator_data_generation(
             plt.imsave(output_png_preview_filepath, depth_img_preview, cmap='plasma')
             _info(f"   Preview profondita PNG: '{output_png_preview_filepath}'")
         except Exception as e: 
-            _info(f"   Errore durante la conversione/salvataggio dei dati di profondita: {e}")
+            _error(f"   Errore durante la conversione/salvataggio dei dati di profondita: {e}")
     else:
-        _info(f"   File .npy di profondita '{input_npy_filepath}' non trovato in '{output_dir_root}'. Verranno generati i file tramite pipeline stereo.")
+        _warn(f"   File .npy di profondita '{input_npy_filepath}' non trovato in '{output_dir_root}'. Verranno generati i file tramite pipeline stereo.")
 
     if rep_cfg.get("enable_segmentation_split", True):
         if cv2 is None:
-            _info("   CV2 non disponibile. Skipping splitting segmentazione.")
+            _warn("CV2 non disponibile. Splitting segmentazione ignorato")
         else:
             _info(f"\n--- Tentativo di splitting segmentazione (per output della camera principale in '{output_dir_root}') ---")
             segmentation_json_basename = "instance_segmentation_semantics_mapping_0000.json"
@@ -646,8 +646,8 @@ def run_replicator_data_generation(
             segmentation_json_path = os.path.join(output_dir_root, "left", "instance_segmentation", segmentation_json_basename)
             segmentation_img_path = os.path.join(output_dir_root, "left", "instance_segmentation", segmentation_image_basename_for_split)
             
-            _info(f"  Cercando immagine segmentazione per splitting: '{segmentation_img_path}'")
-            _info(f"  Cercando JSON mapping per splitting: '{segmentation_json_path}'")
+            log_debug(f"  Cercando immagine segmentazione per splitting: '{segmentation_img_path}'")
+            log_debug(f"  Cercando JSON mapping per splitting: '{segmentation_json_path}'")
 
             if os.path.exists(segmentation_img_path) and os.path.exists(segmentation_json_path):
                 base_for_split_output = os.path.splitext(segmentation_image_basename_for_split)[0]
@@ -656,16 +656,16 @@ def run_replicator_data_generation(
                 current_split_classes = set(rep_cfg.get("split_tool_config", {}).get("split_classes", list(SPLIT_CLASSES)))
                 current_ignore_classes = set(rep_cfg.get("split_tool_config", {}).get("ignore_classes", list(IGNORE_CLASSES)))
                 
-                _info(f"  Avvio splitting per: Img='{segmentation_img_path}', Json='{segmentation_json_path}', OutPrefix='{output_prefix_for_split}'")
+                log_debug(f"  Avvio splitting per: Img='{segmentation_img_path}', Json='{segmentation_json_path}', OutPrefix='{output_prefix_for_split}'")
                 split_rgb_instance_segmentation(
                     image_path=segmentation_img_path, color_mapping_path=segmentation_json_path,
                     output_path_prefix=output_prefix_for_split,
                     current_split_classes=current_split_classes, current_ignore_classes=current_ignore_classes
                 )
             else:
-                _info(f"   Immagine segmentazione o JSON mapping non trovati in '{output_dir_root}'. Skipping splitting.")
-                if not os.path.exists(segmentation_img_path): _info(f"    File immagine NON TROVATO: '{segmentation_img_path}'")
-                if not os.path.exists(segmentation_json_path): _info(f"    File JSON NON TROVATO: '{segmentation_json_path}'")
+                _warn(f"   Immagine segmentazione o JSON mapping non trovati in '{output_dir_root}'. Skipping splitting.")
+                if not os.path.exists(segmentation_img_path): log_debug(f"    File immagine NON TROVATO: '{segmentation_img_path}'")
+                if not os.path.exists(segmentation_json_path): log_debug(f"    File JSON NON TROVATO: '{segmentation_json_path}'")
     else:
         _info("\n--- Splitting segmentazione disabilitato in rep_cfg ---")
     
@@ -680,8 +680,8 @@ def run_replicator_data_generation(
 
             cameraAperture = float(data["cameraAperture"][0])
             cameraFocalLength = float(data["cameraFocalLength"])
-    _info(cameraAperture)
-    _info(cameraFocalLength)
+    log_debug(f"Camera aperture: {cameraAperture}")
+    log_debug(f"Camera focal length: {cameraFocalLength}")
 
         
     success = process_stereo_images_minimal(

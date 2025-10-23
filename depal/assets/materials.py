@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import traceback
+from depal.utils.logger import log_debug, log_error, log_info, log_warning
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, TYPE_CHECKING

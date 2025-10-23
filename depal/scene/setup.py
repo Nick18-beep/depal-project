@@ -9,6 +9,7 @@ import typing as T
 
 import numpy as np
 from typing import TYPE_CHECKING
+from depal.utils.logger import log_debug, log_info, log_warning
 
 if TYPE_CHECKING:  # pragma: no cover
     from pxr import Gf, Usd, UsdGeom, UsdPhysics
@@ -40,7 +41,7 @@ def setup_new_scene_for_image(simulation_app, omni_usd, img_number, total_images
     if not create_new_stage():
         raise RuntimeError("Fallimento nella creazione di una nuova scena.")
     simulation_app.update()
-    print(f"Nuova scena creata (Immagine {img_number}/{total_images}).")
+    log_info(f"Scena {img_number}/{total_images} creata")
     stage = omni_usd.get_context().get_stage()
     if not stage:
         raise RuntimeError("Fallimento nell'ottenere lo stage USD.")
@@ -55,7 +56,7 @@ def create_scene_materials(
     material_cfg,
 ):
     """Crea materiali PBR da texture e restituisce i componenti e i percorsi."""
-    print(f"Creazione materiali da '{texture_dir_path}' in '{base_material_usd_path_str}'.")
+    log_info(f"Materiali generati da {texture_dir_path} in {base_material_usd_path_str}")
     components = create_materials_from_directory(
         stage=stage,
         simulation_app=simulation_app,
@@ -69,11 +70,9 @@ def create_scene_materials(
         if comp.material_prim and comp.material_prim.IsValid()
     ]
     if not components:
-        print(f"AVVISO: Nessun materiale creato da '{texture_dir_path}'.")
+        log_warning(f"Materiali non creati: cartella {texture_dir_path}")
     else:
-        print(
-            f"Creati {len(components)} materiali PBR. {len(prim_paths)} percorsi prim validi disponibili."
-        )
+        log_info(f"Materiali PBR creati: {len(components)} (percorsi validi: {len(prim_paths)})")
     return components, prim_paths
 
 
@@ -89,7 +88,7 @@ def setup_scene_floor(stage, floor_prim_path, all_pbr_components):
         ):
             floor_material_comp = None
 
-    print(f"Aggiunta pavimento a '{floor_prim_path}'.")
+    log_info(f"Pavimento posizionato su {floor_prim_path}")
     builder = FloorBuilder(stage)
     floor_component = (
         FloorMaterialComponent(
@@ -102,13 +101,11 @@ def setup_scene_floor(stage, floor_prim_path, all_pbr_components):
     )
     floor_obj = builder.create(prim_path=floor_prim_path, material_component=floor_component)
     if floor_obj:
-        print(f"Pavimento '{floor_obj.prim_path}' aggiunto.")
+        log_info(f"Pavimento aggiunto: {floor_obj.prim_path}")
         if floor_material_comp:
-            print(
-                f"Materiale '{floor_material_comp.material_prim.GetPath().pathString}' assegnato al pavimento."
-            )
+            log_info(f"Materiale {floor_material_comp.material_prim.GetPath().pathString} assegnato al pavimento")
     else:
-        print("ERRORE: Fallimento nell'aggiunta del pavimento.")
+        log_warning("Fallimento creazione pavimento")
     return floor_obj
 
 
@@ -116,7 +113,7 @@ def setup_scene_lighting(stage, light_cfg, light_base_path):
     """Istanzia luci casuali nella scena basate sulla configurazione."""
     from depal.spawners.lights import spawn_variable_random_lights
 
-    print(f"Creazione luci casuali in '{light_base_path}'.")
+    log_info(f"Luci create in {light_base_path}")
     lights = spawn_variable_random_lights(
         stage=stage,
         base_path=light_base_path,
@@ -125,9 +122,9 @@ def setup_scene_lighting(stage, light_cfg, light_base_path):
         clear_existing=light_cfg["clear_existing"],
     )
     if lights:
-        print(f"Create {len(lights)} luci.")
+        log_info(f"Numero luci: {len(lights)}")
     else:
-        print("Nessuna luce creata.")
+        log_warning("Nessuna luce istanziata")
     return lights
 
 
@@ -141,7 +138,7 @@ def spawn_main_asset(stage, asset_cfg, parent_path_str, base_pos_np, materials_f
     scale = np.array(details["scale_multiplier_xyz"]) * asset_cfg["cm_to_m_scale_factor"]
     rot_z = random.uniform(*asset_cfg["random_asset_rotation_z_range"])
 
-    print(f"Istanziazione {choice} '{prim_name}', usando la cartella materiali '{materials_folder_str}'.")
+    log_info(f"Istanziazione {choice} {prim_name} con materiali {materials_folder_str}")
     spawned_prim = spawn_single_pallet(
         stage=stage,
         usd_asset_paths=details["usd_asset_paths"],
@@ -156,9 +153,9 @@ def spawn_main_asset(stage, asset_cfg, parent_path_str, base_pos_np, materials_f
         material_application_probability=asset_cfg["asset_material_application_probability"],
     )
     if spawned_prim:
-        print(f"Asset '{spawned_prim.GetPath()}' istanziato.")
+        log_info(f"Asset istanziato: {spawned_prim.GetPath()}")
     else:
-        print(f"Fallimento istanziazione asset '{prim_name}'.")
+        log_warning(f"Asset non istanziato: {prim_name}")
     return spawned_prim
 
 
@@ -169,11 +166,11 @@ def spawn_additional_ycb_objects(stage, ycb_cfg):
     if not ycb_cfg.get("enable", False):
         return []
     if not ycb_cfg.get("asset_list"):
-        print("AVVISO: Lista asset YCB vuota, salto istanziazione YCB.")
+        log_warning("Lista asset YCB vuota, istanziazione saltata")
         return []
 
     mats_folder = ycb_cfg.get("materials_folder_path", "/World/Looks")
-    print(f"Istanziazione oggetti YCB, usando la cartella materiali '{mats_folder}'.")
+    log_info(f"Istanziazione oggetti YCB con materiali {mats_folder}")
     prims = spawn_objects(
         stage=stage,
         num_to_spawn_range=ycb_cfg["num_to_spawn_range"],
@@ -191,9 +188,9 @@ def spawn_additional_ycb_objects(stage, ycb_cfg):
         asset_material_override_probability=ycb_cfg["asset_material_override_probability"],
     )
     if prims:
-        print(f"Istanziati {len(prims)} oggetti YCB.")
+        log_info(f"Oggetti YCB istanziati: {len(prims)}")
     else:
-        print("Nessun oggetto YCB istanziato.")
+        log_warning("Nessun oggetto YCB istanziato")
     return prims
 
 
@@ -206,9 +203,7 @@ def spawn_boxes_on_scene(stage, box_cfg, parent_path_str, base_pos_np, direct_ma
     )
 
     if direct_mat_paths_list:
-        print(
-            f"Lo spawner di scatole ha ricevuto {len(direct_mat_paths_list)} percorsi materiali diretti."
-        )
+        log_debug(f"Box spawner: {len(direct_mat_paths_list)} percorsi materiali diretti disponibili")
 
     spawned = spawn_basic_boxes(
         stage=stage,
@@ -229,9 +224,9 @@ def spawn_boxes_on_scene(stage, box_cfg, parent_path_str, base_pos_np, direct_ma
         procedural_vs_asset_probability=box_cfg["procedural_vs_asset_probability"],
     )
     if spawned:
-        print(f"Istanziate {len(spawned)} scatole.")
+        log_info(f"Scatole istanziate: {len(spawned)}")
     else:
-        print("Nessuna scatola istanziata.")
+        log_warning("Nessuna scatola istanziata")
     return spawned
 
 
@@ -246,13 +241,13 @@ def setup_main_camera(stage, prims_utils_module, Gf_module, UsdGeom_module, cam_
     
     pos = Gf_module.Vec3f(scene_origin_np[0], scene_origin_np[1], random_cam_height)
     rot = Gf_module.Vec3f(cam_cfg['rotation_xyz'])
-    print(f"Setup camera a '{cam_path_str}' con altezza Z casuale: {random_cam_height:.2f}m.")
+    log_info(f"Camera {cam_path_str} impostata a Z={random_cam_height:.2f}")
     cam = prims_utils_module.create_prim(
         cam_path_str, prim_type="Camera", position=pos,
         attributes={"focalLength": cam_cfg['focal_length']}
     )
     if cam: UsdGeom_module.XformCommonAPI(cam).SetRotate(rot, UsdGeom_module.XformCommonAPI.RotationOrderXYZ)
-    else: print(f"ERRORE: Fallimento creazione camera a '{cam_path_str}'.")
+    else: log_warning(f"Fallimento creazione camera {cam_path_str}")
     return cam
 
 
@@ -400,7 +395,7 @@ def spawn_invisible_walls(stage: "Usd.Stage",
 
     scl  = _local_scale(tgt)             # scala locale (sx, sy, sz)
     size, centro = _bbox_local(tgt)           # dimensioni interne
-    print("dimensioni: ",size,"  ",centro)
+    log_debug(f"Dimensioni container: {size} centro {centro}")
     size = Gf.Vec3d(size[0]*scl[0], size[1]*scl[1], size[2]*scl[2])
 
     # spessore locale per thickness reale
@@ -456,9 +451,9 @@ def spawn_invisible_walls(stage: "Usd.Stage",
         wall_paths.append(p)
 
     # debug
-    print("[DEBUG] scala locale container :", scl)
-    print("[DEBUG] orientazione (XYZ deg) :", _local_orientation(tgt))
-    print("[DEBUG] size scalate (L P H)    :", size)
+    log_debug(f"Scala locale container: {scl}")
+    log_debug(f"Orientamento container: {_local_orientation(tgt)}")
+    log_debug(f"Dimensioni scalate container: {size}")
 
     return wall_paths
 
