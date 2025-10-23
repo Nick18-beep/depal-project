@@ -54,7 +54,7 @@ import os
 def _calculate_focal_length_pixels(image_width_px, cam_focal_length_mm, cam_horizontal_aperture_mm):
     """Calcola la lunghezza focale in pixel basata sulla larghezza dell'immagine."""
     if cam_horizontal_aperture_mm == 0:
-        print("Errore: CAM_HORIZONTAL_APERTURE_MM non può essere zero.")
+        print("Errore: CAM_HORIZONTAL_APERTURE_MM non puo essere zero.")
         return None
     return (cam_focal_length_mm / cam_horizontal_aperture_mm) * image_width_px
 
@@ -77,7 +77,7 @@ def _calculate_basic_depth_map(imgL_gray, imgR_gray, focal_length_px, baseline_m
         speckleRange=32,
         mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
     )
-    print("Calcolo disparità (SGBM base)...")
+    print("Calcolo disparita (SGBM base)...")
     disparity = stereo.compute(imgL_gray, imgR_gray).astype(np.float32) / 16.0
 
 
@@ -100,7 +100,7 @@ def _calculate_basic_depth_map(imgL_gray, imgR_gray, focal_length_px, baseline_m
 
 def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
     """
-    Salva la mappa di profondità colorata come immagine pura (senza assi, colorbar, ecc.).
+    Salva la mappa di profondita colorata come immagine pura (senza assi, colorbar, ecc.).
     """
     depth_display = depth_map_mm.copy()
     h, w = depth_display.shape
@@ -113,27 +113,27 @@ def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
 
     if max_depth_m is not None:
         max_depth_mm_val = max_depth_m * 1000.0
-        # I valori <= 0 o > max_depth_mm sono già stati clippati a max_depth_mm
-        # nella funzione di calcolo se max_depth_m è specificato.
+        # I valori <= 0 o > max_depth_mm sono gia stati clippati a max_depth_mm
+        # nella funzione di calcolo se max_depth_m e specificato.
         # Per la normalizzazione, i valori 0 (che dovrebbero essere max_depth_mm in questo caso)
         # o i valori effettivamente a max_depth_mm saranno mappati al limite superiore della colormap.
         # I valori minimi "reali" saranno mappati al limite inferiore.
-        # Se non ci sono profondità valide < max_depth_mm, l'immagine sarà uniforme.
+        # Se non ci sono profondita valide < max_depth_mm, l'immagine sara uniforme.
         vmin_norm = 0 # np.min(valid_depths) if valid_depths.size > 0 and np.min(valid_depths) < max_depth_mm_val else 0
         vmax_norm = max_depth_mm_val
         # Maschera per i valori che sono stati clippati o erano invalidi (ora a max_depth_mm)
-        # o che sono zero se max_depth_m non è stato specificato.
-        # Se max_depth_m è specificato, i valori 0 o non validi sono ora max_depth_mm.
-        # Se max_depth_m NON è specificato, i valori 0 sono "profondità sconosciuta".
+        # o che sono zero se max_depth_m non e stato specificato.
+        # Se max_depth_m e specificato, i valori 0 o non validi sono ora max_depth_mm.
+        # Se max_depth_m NON e specificato, i valori 0 sono "profondita sconosciuta".
         
         # Normalizza tra 0 e 1.
         # I valori uguali a vmax_norm diventeranno 1.
         # I valori uguali a vmin_norm diventeranno 0.
         # Gestione divisione per zero se vmin_norm == vmax_norm (immagine piatta)
         if vmax_norm == vmin_norm:
-            if vmax_norm == 0 : # Tutto è zero (o era invalido e max_depth_m non specificato)
+            if vmax_norm == 0 : # Tutto e zero (o era invalido e max_depth_m non specificato)
                  normalized_depth = np.zeros_like(depth_display, dtype=np.float32)
-            else: # Tutto è a max_depth (o era invalido e clippato a max_depth)
+            else: # Tutto e a max_depth (o era invalido e clippato a max_depth)
                  normalized_depth = np.ones_like(depth_display, dtype=np.float32)
         else:
             normalized_depth = (depth_display - vmin_norm) / (vmax_norm - vmin_norm)
@@ -156,7 +156,7 @@ def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
                 if vmax_norm == 0 and vmin_norm == 0 : vmax_norm = 1.0 # Tutto zero
 
 
-        else: # Nessuna profondità valida, immagine nera
+        else: # Nessuna profondita valida, immagine nera
             vmin_norm = 0
             vmax_norm = 1 # Evita divisione per zero
 
@@ -164,20 +164,20 @@ def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
         if vmax_norm == vmin_norm: # Immagine piatta o tutta zero
             if vmax_norm == 0:
                 normalized_depth = np.zeros_like(depth_display, dtype=np.float32)
-            else: # Immagine piatta a un valore non zero (improbabile con percentile se c'è variazione)
+            else: # Immagine piatta a un valore non zero (improbabile con percentile se c'e variazione)
                 normalized_depth = np.ones_like(depth_display, dtype=np.float32) * 0.5 # grigio
         else:
             normalized_depth = (depth_display - vmin_norm) / (vmax_norm - vmin_norm)
         
         normalized_depth = np.clip(normalized_depth, 0, 1)
-        # I pixel con profondità originale 0 (invalidi) saranno 0 nella mappa normalizzata (o il valore clippato).
+        # I pixel con profondita originale 0 (invalidi) saranno 0 nella mappa normalizzata (o il valore clippato).
         # Questi verranno colorati secondo l'estremo inferiore della colormap.
 
 
     # Applica la colormap
     # Usiamo 'viridis_r' come prima, ma potresti sceglierne altre da plt.cm.
-    # La '_r' inverte la colormap, quindi i valori più piccoli (vicini) sono più chiari
-    # e i valori più grandi (lontani) sono più scuri.
+    # La '_r' inverte la colormap, quindi i valori piu piccoli (vicini) sono piu chiari
+    # e i valori piu grandi (lontani) sono piu scuri.
     colormap = plt.cm.get_cmap('viridis_r') 
     colored_image_rgba = colormap(normalized_depth) # Questo restituisce un array RGBA (0-1)
 
@@ -187,7 +187,7 @@ def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
     colored_image_bgr_uint8 = cv2.cvtColor(colored_image_bgr_uint8, cv2.COLOR_RGB2BGR)
 
 
-    # Se max_depth_m non è stato specificato, colora i pixel con profondità 0 (invalidi) di nero
+    # Se max_depth_m non e stato specificato, colora i pixel con profondita 0 (invalidi) di nero
     if max_depth_m is None:
         mask_invalid = depth_display == 0
         colored_image_bgr_uint8[mask_invalid] = [0, 0, 0] # Nero per invalidi
@@ -195,9 +195,9 @@ def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
 
     try:
         cv2.imwrite(output_path, colored_image_bgr_uint8)
-        print(f"Immagine mappa di profondità (solo immagine) salvata in: {output_path}")
+        print(f"Immagine mappa di profondita (solo immagine) salvata in: {output_path}")
     except Exception as e:
-        print(f"Errore durante il salvataggio dell'immagine (solo immagine) della mappa di profondità: {e}")
+        print(f"Errore durante il salvataggio dell'immagine (solo immagine) della mappa di profondita: {e}")
 
 
 
@@ -217,7 +217,7 @@ def process_stereo_images_minimal(
     
     ):
     """
-    Funzione minimale per calcolare e salvare una mappa di profondità,
+    Funzione minimale per calcolare e salvare una mappa di profondita,
     utilizzando caratteristiche fisse della fotocamera e dimensioni dell'immagine di input.
 
 
@@ -227,8 +227,8 @@ def process_stereo_images_minimal(
         output_folder (str): Cartella dove salvare i risultati.
         image_width_px (int): Larghezza delle immagini di input in pixel.
         image_height_px (int): Altezza delle immagini di input in pixel.
-        max_depth_meters (float, optional): Massima profondità da considerare (in metri).
-                                            Se None, la scala è automatica.
+        max_depth_meters (float, optional): Massima profondita da considerare (in metri).
+                                            Se None, la scala e automatica.
         base_filename (str, optional): Nome base per i file di output.
     Returns:
         bool: True se l'operazione ha avuto successo, False altrimenti.
@@ -240,7 +240,7 @@ def process_stereo_images_minimal(
     print(f"Img Destra: {right_image_path}")
     print(f"Dimensioni Img Input: {image_width_px}x{image_height_px} px")
     print(f"Output Folder: {output_folder}")
-    print(f"Max Profondità: {max_depth_meters} m" if max_depth_meters else "Max Profondità: Auto")
+    print(f"Max Profondita: {max_depth_meters} m" if max_depth_meters else "Max Profondita: Auto")
 
 
     # Usa le caratteristiche fisse della fotocamera definite sopra
@@ -305,31 +305,31 @@ def process_stereo_images_minimal(
             max_depth_m=max_depth_meters
         )
     except Exception as e:
-        print(f"Errore durante il calcolo della mappa di profondità: {e}")
+        print(f"Errore durante il calcolo della mappa di profondita: {e}")
         return False
 
 
     if depth_map_mm is None:
-        print("Calcolo della mappa di profondità fallito.")
+        print("Calcolo della mappa di profondita fallito.")
         return False
 
 
-    npy_filename = os.path.join(output_folder, f"{base_filename}_depth_map.npy")
+    npy_filename = os.path.join(output_folder, f"{base_filename}.npy")
     try:
         np.save(npy_filename, depth_map_mm)
-        print(f"Mappa di profondità numerica (.npy) salvata in: {npy_filename}")
+        print(f"Mappa di profondita numerica (.npy) salvata in: {npy_filename}")
     except Exception as e:
         print(f"Errore durante il salvataggio del file .npy: {e}")
 
 
 
     depth_array = np.load(npy_filename)
-    depth_tiff_basename = "real_depth.tif"
+    depth_tiff_basename = f"{base_filename}.tif"
     output_tiff_filepath = os.path.join(output_folder, f"{depth_tiff_basename}")
     tifffile.imwrite(output_tiff_filepath, depth_array, imagej=True)
 
 
-    colored_map_filename = os.path.join(output_folder, f"{base_filename}_depth_map_colored.png")
+    colored_map_filename = os.path.join(output_folder, f"{base_filename}_preview.png")
     try:
         title_info_plot = f"F={focal_length_px_calculated:.1f}px, B={baseline_to_use_meters*1000:.0f}mm"
         _save_depth_map_as_image_only(
@@ -339,7 +339,7 @@ def process_stereo_images_minimal(
             
             )
     except Exception as e:
-        print(f"Errore durante il salvataggio dell'immagine colorata della mappa di profondità: {e}")
+        print(f"Errore durante il salvataggio dell'immagine colorata della mappa di profondita: {e}")
         return False
 
 
@@ -378,7 +378,7 @@ def split_rgb_instance_segmentation(
     current_split_classes: Set[str], current_ignore_classes: Set[str]
 ) -> Tuple[Optional[str], Optional[str], bool]:
     if cv2 is None:
-        print("  ❌ Errore: cv2 non disponibile per split_rgb_instance_segmentation.")
+        print("   Errore: cv2 non disponibile per split_rgb_instance_segmentation.")
         return None, None, False
     img = _load_rgba(image_path)
     if img is None: return None, None, False
@@ -433,7 +433,7 @@ def split_rgb_instance_segmentation(
     json_output_dir = os.path.dirname(final_output_json_path)
     if not os.path.exists(json_output_dir) and json_output_dir != "": os.makedirs(json_output_dir, exist_ok=True)
     with open(final_output_json_path, "w", encoding="utf-8") as f: json.dump(out_map, f, indent=2, sort_keys=True)
-    print(f"  ✅ Split mask: '{final_output_png_path}', Split mapping: '{final_output_json_path}'")
+    print(f"   Split mask: '{final_output_png_path}', Split mapping: '{final_output_json_path}'")
     return final_output_png_path, final_output_json_path, True
 
 def run_replicator_data_generation(
@@ -445,7 +445,7 @@ def run_replicator_data_generation(
     _, _, Gf, _ = _get_pxr_modules()
     omni_usd = _get_omni_usd()
     if cv2 is None and rep_cfg.get("enable_segmentation_split", True):
-        print("AVVISO: OpenCV (cv2) non disponibile, ma 'enable_segmentation_split' è True. Lo splitting non sarà possibile.")
+        print("AVVISO: OpenCV (cv2) non disponibile, ma 'enable_segmentation_split' e True. Lo splitting non sara possibile.")
 
     if timeline_ref.is_playing():
         timeline_ref.pause()
@@ -460,7 +460,7 @@ def run_replicator_data_generation(
 
   
     resolution_wh = tuple(rep_cfg['resolution_wh'])
-    # Questa configurazione è per gli annotatori della MAIN CAMERA
+    # Questa configurazione e per gli annotatori della MAIN CAMERA
     # e per le impostazioni globali del writer (es. formato RGB)
     writer_global_config = rep_cfg.get('writer_outputs', {}).copy()
 
@@ -495,7 +495,7 @@ def run_replicator_data_generation(
                     print(f"    ATTENZIONE: Annotatore '{annotator_name}' non collegato a {MAIN_CAMERA_RP_NAME}: {e}")
             
             writer_main = rep_module.WriterRegistry.get("BasicWriter")
-            # Usa writer_global_config che può specificare formati per annotatori (es. rgb:png)
+            # Usa writer_global_config che puo specificare formati per annotatori (es. rgb:png)
             writer_main.initialize(output_dir=output_dir_root, **writer_global_config)
             writer_main.attach([rp_main])
             rep_module.orchestrator.step()'''
@@ -503,14 +503,14 @@ def run_replicator_data_generation(
             
         
     # ------------------------------------------------------------------
-    # 2) Query world‑position (height) of the main camera.
+    # 2) Query worldposition (height) of the main camera.
     # ------------------------------------------------------------------
     stage = omni_usd.get_context().get_stage()
     main_cam_prim = stage.GetPrimAtPath(cam_path_str)
     if not main_cam_prim.IsValid():
         raise ValueError(f"Camera prim not found at path: {cam_path_str}")
 
-    # Extract world translation (Pxr USD util) – returns Gf.Vec3d.
+    # Extract world translation (Pxr USD util)  returns Gf.Vec3d.
     world_m44 = omni_usd.utils.get_world_transform_matrix(main_cam_prim)  # type: ignore
     main_cam_world_pos = Gf.Vec3d(world_m44.ExtractTranslation())
 
@@ -554,12 +554,12 @@ def run_replicator_data_generation(
         rp_left = rep_module.create.render_product(
         "/Replicator/stereo_cam/stereo_cam_L_Xform/stereo_cam_L", # Passa il path del prim della camera sinistra
         resolution_wh,
-        name="left" # Questo nome sarà usato per il RenderProduct prim e la cartella
+        name="left" # Questo nome sara usato per il RenderProduct prim e la cartella
         )
         rp_right = rep_module.create.render_product(
             "/Replicator/stereo_cam/stereo_cam_R_Xform/stereo_cam_R", # Passa il path del prim della camera destra
             resolution_wh,
-            name="right" # Questo nome sarà usato per il RenderProduct prim e la cartella
+            name="right" # Questo nome sara usato per il RenderProduct prim e la cartella
         )
 
 
@@ -596,30 +596,30 @@ def run_replicator_data_generation(
     conversione = False
     
     if os.path.exists(input_npy_filepath):
-        print(f"  Trovato file di profondità: '{input_npy_filepath}'")
+        print(f"  Trovato file di profondita: '{input_npy_filepath}'")
         try:
             depth_array = np.load(input_npy_filepath)
             
             depth_tiff_basename = "distance_to_image_plane_0000.tif"
             output_tiff_filepath = os.path.join(output_dir_root, "left", "distance_to_image_plane", depth_tiff_basename)
             tifffile.imwrite(output_tiff_filepath, depth_array, imagej=True)
-            print(f"  ✅ Dati di profondità TIFF: '{output_tiff_filepath}'")
+            print(f"   Dati di profondita TIFF: '{output_tiff_filepath}'")
             
-            depth_preview_png_basename = "distance_to_imageplane_preview.png"
+            depth_preview_png_basename = "distance_to_image_plane_0000_preview.png"
             output_png_preview_filepath = os.path.join(output_dir_root, "left", "distance_to_image_plane", depth_preview_png_basename)
             min_val, max_val = np.min(depth_array), np.max(depth_array)
             depth_norm = np.zeros_like(depth_array,dtype=np.float32) if max_val == min_val else (depth_array - min_val) / (max_val - min_val)
             depth_img_preview = (depth_norm * 255).astype(np.uint8)
             plt.imsave(output_png_preview_filepath, depth_img_preview, cmap='plasma')
-            print(f"  ✅ Preview profondità PNG: '{output_png_preview_filepath}'")
+            print(f"   Preview profondita PNG: '{output_png_preview_filepath}'")
         except Exception as e: 
-            print(f"  ❌ Errore durante la conversione/salvataggio dei dati di profondità: {e}")
+            print(f"   Errore durante la conversione/salvataggio dei dati di profondita: {e}")
     else:
-        print(f"  ⚠️ File .npy di profondità '{input_npy_filepath}' non trovato in '{output_dir_root}'. Skipping conversione.")
+        print(f"   File .npy di profondita '{input_npy_filepath}' non trovato in '{output_dir_root}'. Verranno generati i file tramite pipeline stereo.")
 
     if rep_cfg.get("enable_segmentation_split", True):
         if cv2 is None:
-            print("  ⚠️ CV2 non disponibile. Skipping splitting segmentazione.")
+            print("   CV2 non disponibile. Skipping splitting segmentazione.")
         else:
             print(f"\n--- Tentativo di splitting segmentazione (per output della camera principale in '{output_dir_root}') ---")
             segmentation_json_basename = "instance_segmentation_semantics_mapping_0000.json"
@@ -645,7 +645,7 @@ def run_replicator_data_generation(
                     current_split_classes=current_split_classes, current_ignore_classes=current_ignore_classes
                 )
             else:
-                print(f"  ⚠️ Immagine segmentazione o JSON mapping non trovati in '{output_dir_root}'. Skipping splitting.")
+                print(f"   Immagine segmentazione o JSON mapping non trovati in '{output_dir_root}'. Skipping splitting.")
                 if not os.path.exists(segmentation_img_path): print(f"    File immagine NON TROVATO: '{segmentation_img_path}'")
                 if not os.path.exists(segmentation_json_path): print(f"    File JSON NON TROVATO: '{segmentation_json_path}'")
     else:
@@ -673,7 +673,7 @@ def run_replicator_data_generation(
         image_width_px=resolution_wh[0], # Passa le dimensioni effettive
         image_height_px=resolution_wh[1], # Passa le dimensioni effettive
         max_depth_meters=float(main_cam_world_pos[2]),
-        base_filename="real",
+        base_filename="distance_to_image_plane_0000",
         baseline_given=rep_cfg['stereo_baseline'],
         cameraAperture=cameraAperture,
         cameraFocalLength=cameraFocalLength

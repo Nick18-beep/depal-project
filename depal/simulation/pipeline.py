@@ -167,7 +167,23 @@ class SimulationPipeline:
             for _ in range(50):
                 simulation_app.update()
 
-            self._last_spawned = SpawnedEntities(boxes=spawned_boxes, objects=spawned_objects)
+            spawned_box_paths = []
+            for prim in spawned_boxes:
+                if hasattr(prim, "GetPath"):
+                    path_str = prim.GetPath().pathString
+                else:
+                    path_str = str(prim)
+                spawned_box_paths.append(path_str)
+
+            spawned_object_paths = []
+            for prim in spawned_objects:
+                if hasattr(prim, "GetPath"):
+                    path_str = prim.GetPath().pathString
+                else:
+                    path_str = str(prim)
+                spawned_object_paths.append(path_str)
+
+            self._last_spawned = SpawnedEntities(boxes=spawned_box_paths, objects=spawned_object_paths)
             self._grip_workflow.run(
                 stage=stage,
                 simulation_app=simulation_app,

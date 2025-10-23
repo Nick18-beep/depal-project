@@ -41,8 +41,12 @@ def spawn_basic_boxes(
     del prim Xform che li contiene direttamente.
     Questo Xform contenitore viene poi scalato, ruotato e posizionato.
     """
-    num_boxes = random.randint(num_to_spawn_range[0], num_to_spawn_range[1])
-    print(f"simple_box_spawner.py: Inizio generazione di {num_boxes} scatole.")
+    min_spawn = int(round(num_to_spawn_range[0]))
+    max_spawn = int(round(num_to_spawn_range[1])) if len(num_to_spawn_range) > 1 else min_spawn
+    min_spawn = max(0, min_spawn)
+    max_spawn = max(min_spawn, max_spawn)
+    num_boxes = random.randint(min_spawn, max_spawn) if max_spawn >= min_spawn else 0
+    print(f"simple_box_spawner.py: Inizio generazione di {num_boxes} scatole (range richiesto {min_spawn}-{max_spawn}).")
 
     all_available_usd_asset_paths = []
     if box_asset_paths:
@@ -69,10 +73,10 @@ def spawn_basic_boxes(
     if not all_available_usd_asset_paths:
         print(f"simple_box_spawner.py: AVVISO - Nessun asset USD disponibile. Verranno creati solo cubi procedurali se scelti.")
 
-    if not get_prim_at_path(parent_path): # get_prim_at_path è di Isaac Sim, non di PXR Usd
+    if not get_prim_at_path(parent_path): # get_prim_at_path e di Isaac Sim, non di PXR Usd
         # Usiamo stage.GetPrimAtPath per PXR puro se necessario, ma qui va bene
-        # se la funzione get_prim_at_path è disponibile dall'ambiente Isaac Sim.
-        # Se questo script è eseguito fuori da Isaac Sim, questa riga darebbe errore.
+        # se la funzione get_prim_at_path e disponibile dall'ambiente Isaac Sim.
+        # Se questo script e eseguito fuori da Isaac Sim, questa riga darebbe errore.
         # Assumendo che sia in Isaac Sim:
         parent_prim = stage.GetPrimAtPath(parent_path)
         if not parent_prim:
@@ -84,7 +88,7 @@ def spawn_basic_boxes(
 
     for i in range(num_boxes):
         box_prim_name = f"BasicBox_{i}"
-        # Questo è il percorso del prim Xform radice per questo box/asset
+        # Questo e il percorso del prim Xform radice per questo box/asset
         asset_root_prim_path = f"{parent_path}/{box_prim_name}"
 
         # La posizione di spawn desiderata per il *centro* dell'oggetto finale
@@ -97,19 +101,12 @@ def spawn_basic_boxes(
         random_euler_rad = np.array([random.uniform(0, 2 * np.pi) for _ in range(3)])
         spawn_orientation_np_wxyz = euler_angles_to_quat(random_euler_rad, degrees=False)
 
-        asset_root_prim = None # Il prim che verrà effettivamente aggiunto alla lista
+        asset_root_prim = None  # Il prim che verra effettivamente aggiunto alla lista
+        material_target_prim_for_binding = None
         actual_asset_path_chosen = None
-        is_procedural_cube = True
-
-        if random.random() < procedural_vs_asset_probability:
-            is_procedural_cube = True
-        elif all_available_usd_asset_paths:
-            is_procedural_cube = False
-        else:
-            print(f"simple_box_spawner.py: DEBUG [{box_prim_name}] Voleva asset, nessuno disponibile. Fallback a cubo.")
-            is_procedural_cube = True
-
-        prim_type_str = "cubo procedurale"
+        use_asset = bool(all_available_usd_asset_paths) and random.random() >= procedural_vs_asset_probability
+        is_procedural_cube = not use_asset
+        prim_type_str = "asset" if use_asset else "cubo procedurale"
 
         if not is_procedural_cube:
             prim_type_str = "asset"
@@ -145,8 +142,8 @@ def spawn_basic_boxes(
             print(f"simple_box_spawner.py: DEBUG [{box_prim_name}] Scala finale asset: {final_asset_scale_np}")
 
             # --- 3. Crea l'Xform radice dell'asset con scala, rotazione e posizione finale ---
-            # Poiché l'asset sarà centrato internamente, la posizione di questo Xform radice
-            # è direttamente la posizione di spawn desiderata per il centro.
+            # Poiche l'asset sara centrato internamente, la posizione di questo Xform radice
+            # e direttamente la posizione di spawn desiderata per il centro.
             asset_root_prim_usd = UsdGeom.Xform.Define(stage, asset_root_prim_path).GetPrim()
             xformable_root = UsdGeom.Xformable(asset_root_prim_usd)
             xformable_root.ClearXformOpOrder()
@@ -163,33 +160,38 @@ def spawn_basic_boxes(
             xformable_centering = UsdGeom.Xformable(centering_xform_usd)
             xformable_centering.ClearXformOpOrder()
             # Applica la traslazione *opposta* all'offset.
-            # Questo offset è già nello spazio locale dell'asset, quindi non necessita di rotazione o scalatura qui.
+            # Questo offset e gia nello spazio locale dell'asset, quindi non necessita di rotazione o scalatura qui.
             centering_translation = -offset_from_pivot_to_center_local_unscaled
             xformable_centering.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Vec3d(centering_translation))
             print(f"simple_box_spawner.py: DEBUG [{box_prim_name}] Applicata traslazione di centratura interna: {centering_translation}")
 
             # --- 5. Referenzia l'asset USD come figlio dell'Xform di centratura ---
-            # Il nome del prim che referenzia l'asset può essere qualsiasi cosa, es. "AssetGeometry"
+            # Il nome del prim che referenzia l'asset puo essere qualsiasi cosa, es. "AssetGeometry"
             asset_geometry_prim_path = f"{centering_xform_path}/AssetGeometry"
             # Definiamo un semplice Prim, non necessariamente un Xform, per fare da contenitore alla reference
-            # Usare Usd.Prim.Define è più generico se non si vuole un tipo specifico come Xform.
-            # Tuttavia, creare un Xform e poi referenziare è anche comune.
-            # Qui, UsdGeom.Xform.Define crea un Xform, il che è ok. Potrebbe anche essere un semplice Scope.
-            # Per semplicità, usiamo DefinePrim che crea un typeless prim (over) se non specificato.
-            # Oppure, più esplicitamente, creiamo un Xform per la reference.
-            asset_ref_prim = stage.DefinePrim(asset_geometry_prim_path, "Xform") # Può anche essere un Scope
+            # Usare Usd.Prim.Define e piu generico se non si vuole un tipo specifico come Xform.
+            # Tuttavia, creare un Xform e poi referenziare e anche comune.
+            # Qui, UsdGeom.Xform.Define crea un Xform, il che e ok. Potrebbe anche essere un semplice Scope.
+            # Per semplicita, usiamo DefinePrim che crea un typeless prim (over) se non specificato.
+            # Oppure, piu esplicitamente, creiamo un Xform per la reference.
+            asset_ref_prim = stage.DefinePrim(asset_geometry_prim_path, "Xform")  # Puo anche essere un Scope
             asset_ref_prim.GetReferences().AddReference(assetPath=actual_asset_path_chosen)
-            
-        else: # Cubo procedurale
+
+            if not asset_root_prim or not asset_root_prim.IsValid():
+                print(f"simple_box_spawner.py: AVVISO [{box_prim_name}] asset '{actual_asset_path_chosen}' non valido. Fallback al cubo procedurale.")
+                is_procedural_cube = True
+                prim_type_str = "cubo procedurale"
+
+        if is_procedural_cube:
             cube_scale_factor = 0.1
             cube_dims_np = np.array([
                 random.uniform(box_scale_min, box_scale_max) * cube_scale_factor,
                 random.uniform(box_scale_min, box_scale_max) * cube_scale_factor,
                 random.uniform(box_scale_min, box_scale_max) * cube_scale_factor
             ])
-            # Per i cubi, il loro pivot è già al centro.
+            # Per i cubi, il loro pivot e gia al centro.
             # create_prim gestisce la creazione di un Cube con le trasformazioni date.
-            asset_root_prim = create_prim( # Qui asset_root_prim sarà il cubo stesso
+            asset_root_prim = create_prim( # Qui asset_root_prim sara il cubo stesso
                 prim_path=asset_root_prim_path, # Usiamo il path dell'asset root
                 prim_type="Cube",
                 position=spawn_position_gf, # Posizione del centro
@@ -212,8 +214,8 @@ def spawn_basic_boxes(
 
         if not is_procedural_cube:
             # Per gli asset, i materiali dovrebbero essere applicati alle mesh reali.
-            # La ricerca delle mesh partirà dal prim che effettivamente referenzia la geometria.
-            # Che è asset_ref_prim nel nostro nuovo schema.
+            # La ricerca delle mesh partira dal prim che effettivamente referenzia la geometria.
+            # Che e asset_ref_prim nel nostro nuovo schema.
             asset_geometry_prim = stage.GetPrimAtPath(f"{asset_root_prim_path}/CenteringXform/AssetGeometry")
             if asset_geometry_prim and asset_geometry_prim.IsValid():
                  material_target_prim_for_binding = asset_geometry_prim # Le mesh saranno figlie di questo
@@ -222,7 +224,7 @@ def spawn_basic_boxes(
                 # Non fare binding se non troviamo il contenitore della geometria
 
         material_applied_to_this_prim_group = False
-        if available_pbr_material_paths and material_target_prim_for_binding.IsValid(): # Aggiunto check validità
+        if available_pbr_material_paths and material_target_prim_for_binding.IsValid(): # Aggiunto check validita
             apply_material_now = False
             if is_procedural_cube:
                 apply_material_now = True
@@ -234,7 +236,7 @@ def spawn_basic_boxes(
                 material_to_bind = UsdShade.Material.Get(stage, selected_material_path)
 
                 if material_to_bind and material_to_bind.GetPrim().IsValid():
-                    if is_procedural_cube: # Cubo procedurale, lega direttamente al prim radice (che è il cubo)
+                    if is_procedural_cube: # Cubo procedurale, lega direttamente al prim radice (che e il cubo)
                         try:
                             UsdShade.MaterialBindingAPI(asset_root_prim).Bind(material_to_bind)
                             print(f"simple_box_spawner.py: Materiale PBR '{selected_material_path}' applicato a {prim_type_str} '{asset_root_prim.GetPath()}'.")
@@ -260,7 +262,7 @@ def spawn_basic_boxes(
                     print(f"simple_box_spawner.py: AVVISO - Materiale PBR '{selected_material_path}' non trovato o non valido.")
 
         if is_procedural_cube and not material_applied_to_this_prim_group: # Per cubi procedurali
-            gprim_api = UsdGeom.Gprim(asset_root_prim) # Il prim radice è il cubo
+            gprim_api = UsdGeom.Gprim(asset_root_prim) # Il prim radice e il cubo
             if gprim_api:
                 color_primvar = gprim_api.CreateDisplayColorPrimvar()
                 if color_primvar:
@@ -274,7 +276,7 @@ def spawn_basic_boxes(
         UsdPhysics.RigidBodyAPI.Apply(asset_root_prim)
 
         #PhysxSchema.PhysxContactReportAPI.Apply(asset_root_prim).CreateThresholdAttr().Set(0.0)    # forza-impulso minimo per il report
-        # dopo CollisionAPI e RigidBodyAPI …
+        # dopo CollisionAPI e RigidBodyAPI ...
        
 
 
