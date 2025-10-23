@@ -675,15 +675,23 @@ def run_replicator_data_generation(
     rgb_left = os.path.join(output_dir_root, "left", "rgb", "rgb_0000.png")
     rgb_right = os.path.join(output_dir_root, "right", "rgb", "rgb_0000.png")
     json_file_path = os.path.join(output_dir_root, "left", "camera_params", "camera_params_0000.json")
-    with open(json_file_path, 'r') as f:
-            data = json.load(f)
 
-            cameraAperture = float(data["cameraAperture"][0])
-            cameraFocalLength = float(data["cameraFocalLength"])
+    if not os.path.exists(json_file_path):
+        _warn(f"   Parametri camera non trovati a '{json_file_path}'. La fase stereo viene ignorata.")
+        return
+
+    try:
+        with open(json_file_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except json.JSONDecodeError as exc:
+        _warn(f"   Parametri camera non leggibili ({exc}). La fase stereo viene ignorata.")
+        return
+
+    cameraAperture = float(data["cameraAperture"][0])
+    cameraFocalLength = float(data["cameraFocalLength"])
     log_debug(f"Camera aperture: {cameraAperture}")
     log_debug(f"Camera focal length: {cameraFocalLength}")
 
-        
     success = process_stereo_images_minimal(
         left_image_path=rgb_left,
         right_image_path=rgb_right,
