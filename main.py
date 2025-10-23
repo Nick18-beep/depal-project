@@ -5,13 +5,13 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from depal import PACKAGE_ROOT
 from depal.config import ConfigStore
 from depal.simulation import SimulationEnvironment, SimulationPipeline
 from depal.server import SimulationOrchestrator, create_app
 
-DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config.yaml"
-OUTPUT_DIRECTORY = PACKAGE_ROOT / "output"
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = BASE_DIR / "config.yaml"
+OUTPUT_DIRECTORY = BASE_DIR / "output"
 
 
 def main() -> None:
@@ -20,7 +20,7 @@ def main() -> None:
     environment = SimulationEnvironment(config_store.current()["simulation_setup"])
     environment.initialize()
 
-    pipeline = SimulationPipeline(environment, PACKAGE_ROOT)
+    pipeline = SimulationPipeline(environment, BASE_DIR)
     orchestrator = SimulationOrchestrator(config_store, pipeline, OUTPUT_DIRECTORY)
 
     flask_app = create_app(orchestrator, OUTPUT_DIRECTORY)
