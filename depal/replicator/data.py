@@ -12,11 +12,23 @@ import typing as T
 
 from depal.utils.logger import log_debug, log_error, log_info, log_section, log_warning
 
+def _info(message: str) -> None:
+    log_info(f"Replicator: {message}")
+
+def _warn(message: str) -> None:
+    log_warning(f"Replicator: {message}")
+
+def _error(message: str) -> None:
+    log_error(f"Replicator: {message}")
+
+def _section(message: str) -> None:
+    log_section(f"Replicator | {message}")
+
 try:
-    import cv2
+    import cv2  # type: ignore
 except ImportError:
+    cv2 = None
     _warn("IMPORT ERROR: OpenCV (cv2) non trovato. Necessario per lo splitting della segmentazione.")
-cv2 = None
 
 _PXR_CACHE = None
 
@@ -54,12 +66,6 @@ def _section(message: str) -> None:
 SPLIT_CLASSES: Set[str] = {"box","ycb_object"}
 IGNORE_CLASSES: Set[str] = {"BACKGROUND", "UNLABELLED"}
 RGBA_Tuple = Tuple[int, int, int, int]
-
-
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-import os
 
 
 # --- Caratteristiche Fisse della Fotocamera (Definite Globalmente o come Costanti) ---
