@@ -8,15 +8,30 @@ import json
 import random
 from typing import Dict, Set, Tuple, List, Optional
 import shutil
-from pxr import UsdGeom, UsdPhysics, Gf,Usd
-import omni.usd
 import typing as T
 
 try:
     import cv2
 except ImportError:
     print("IMPORT ERROR: OpenCV (cv2) non trovato. Necessario per lo splitting della segmentazione.")
-    cv2 = None
+cv2 = None
+
+_PXR_CACHE = None
+
+
+def _get_pxr_modules():
+    global _PXR_CACHE
+    if _PXR_CACHE is None:
+        from pxr import UsdGeom, UsdPhysics, Gf, Usd  # pylint: disable=import-outside-toplevel
+
+        _PXR_CACHE = (UsdGeom, UsdPhysics, Gf, Usd)
+    return _PXR_CACHE
+
+
+def _get_omni_usd():
+    import omni.usd  # pylint: disable=import-outside-toplevel
+
+    return omni.usd
 
 SPLIT_CLASSES: Set[str] = {"box","ycb_object"}
 IGNORE_CLASSES: Set[str] = {"BACKGROUND", "UNLABELLED"}
@@ -421,16 +436,14 @@ def split_rgb_instance_segmentation(
     print(f"  ✅ Split mask: '{final_output_png_path}', Split mapping: '{final_output_json_path}'")
     return final_output_png_path, final_output_json_path, True
 
-import omni.usd
-
-
-
 def run_replicator_data_generation(
     simulation_app, timeline_ref, rep_module, carb_module,
     rep_cfg: Dict, cam_path_str: str,
    
     output_dir_root: str
 ):
+    _, _, Gf, _ = _get_pxr_modules()
+    omni_usd = _get_omni_usd()
     if cv2 is None and rep_cfg.get("enable_segmentation_split", True):
         print("AVVISO: OpenCV (cv2) non disponibile, ma 'enable_segmentation_split' è True. Lo splitting non sarà possibile.")
 
@@ -492,13 +505,13 @@ def run_replicator_data_generation(
     # ------------------------------------------------------------------
     # 2) Query world‑position (height) of the main camera.
     # ------------------------------------------------------------------
-    stage = omni.usd.get_context().get_stage()
+    stage = omni_usd.get_context().get_stage()
     main_cam_prim = stage.GetPrimAtPath(cam_path_str)
     if not main_cam_prim.IsValid():
         raise ValueError(f"Camera prim not found at path: {cam_path_str}")
 
     # Extract world translation (Pxr USD util) – returns Gf.Vec3d.
-    world_m44 = omni.usd.utils.get_world_transform_matrix(main_cam_prim)  # type: ignore
+    world_m44 = omni_usd.utils.get_world_transform_matrix(main_cam_prim)  # type: ignore
     main_cam_world_pos = Gf.Vec3d(world_m44.ExtractTranslation())
 
 

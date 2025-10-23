@@ -6,18 +6,20 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
 import numpy as np
 
-from depal.grippers import pinza as pinza_module
-from depal.grippers.surface_gripper import SurfaceGripperDirectScript
 from depal.stage.io import StageIO
 from depal.utils.image_pick import project_circle_topdown
 from depal.utils.k_matrix import generate_k_matrix
 
 from .environment import SimulationEnvironment
 from .types import GripOptions, SpawnedEntities
+
+if TYPE_CHECKING:  # pragma: no cover
+    from depal.grippers import pinza as pinza_module
+    from depal.grippers.surface_gripper import SurfaceGripperDirectScript
 
 
 @dataclass
@@ -114,6 +116,8 @@ class GripWorkflow:
         spawned_entities: SpawnedEntities,
         camera_data: CameraData,
     ) -> List[Dict[str, object]]:
+        from depal.grippers.surface_gripper import SurfaceGripperDirectScript
+
         box_paths = list(spawned_entities.boxes if box_cfg.get("enable") else [])
         object_paths = list(spawned_entities.objects if ycb_cfg.get("enable") else [])
         selected_paths = box_paths or object_paths
@@ -249,6 +253,8 @@ class GripWorkflow:
         camera_data: CameraData,
         k_matrix: Optional[np.ndarray],
     ) -> None:
+        from depal.grippers import pinza as pinza_module
+
         modules = self._env.modules
 
         self._stage_io.load_stage("stage_freeze_temp/saved_stage.usd")

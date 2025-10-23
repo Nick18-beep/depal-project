@@ -10,12 +10,6 @@ from typing import Dict, Iterable, List, Optional, Sequence
 
 from pxr import Gf, Sdf, UsdShade
 
-try:
-    from isaacsim.core.api.materials import OmniPBR  # type: ignore
-except ImportError:  # pragma: no cover - Isaac Sim specific import
-    OmniPBR = None  # type: ignore[assignment]
-    print("CRITICAL: OmniPBR non importato - verifica i Python-path di Isaac Sim.")
-
 
 SUPPORTED_TEXTURE_EXTENSIONS: Sequence[str] = (
     ".png",
@@ -34,6 +28,12 @@ def _safe_material_name(texture_file: Path) -> str:
 
 def _format_vec3(value: Gf.Vec3f) -> str:
     return f"({value[0]:.2f}, {value[1]:.2f}, {value[2]:.2f})"
+
+
+def _get_omni_pbr():
+    from isaacsim.core.api.materials import OmniPBR  # pylint: disable=import-outside-toplevel
+
+    return OmniPBR
 
 
 @dataclass
@@ -60,10 +60,12 @@ class MaterialFactory:
         base_material_path: str = "/World/Looks",
         config: Optional[Dict] = None,
     ) -> None:
-        if OmniPBR is None:
+        try:
+            self._omni_pbr_cls = _get_omni_pbr()
+        except ImportError as exc:  # pragma: no cover - depends on Isaac Sim installation
             raise RuntimeError(
                 "OmniPBR non disponibile. Assicurati che Isaac Sim sia correttamente configurato."
-            )
+            ) from exc
 
         self._stage = stage
         self._simulation_app = simulation_app
@@ -124,7 +126,7 @@ class MaterialFactory:
 
         try:
             texture_scale = self._sample_config_range("texture_scale_range", default=(1.0, 1.0))
-            OmniPBR(
+            self._omni_pbr_cls(
                 prim_path=material_path,
                 texture_path=str(texture_file.as_posix()),
                 texture_scale=[texture_scale, texture_scale],

@@ -4,21 +4,26 @@ from __future__ import annotations
 
 import os
 import sys
+from functools import cached_property
 from pathlib import Path
 from typing import Optional
 
-import omni.usd
-import omni.timeline
-import omni.kit.app
-
 
 class StageIO:
-    """Encapsulates save/load operations for the active USD stage."""
+    """Encapsulates save/load operations for the active USD stage.
+
+    The heavy Isaac imports are deferred until an instance is created so callers
+    can construct StageIO only after SimulationApp has been initialised.
+    """
 
     def __init__(self) -> None:
-        self._timeline = omni.timeline.get_timeline_interface()
-        self._usd_context = omni.usd.get_context()
-        self._app = omni.kit.app.get_app()
+        import omni.timeline  # noqa: F401
+        import omni.usd  # noqa: F401
+        import omni.kit.app  # noqa: F401
+
+        self._timeline_module = omni.timeline
+        self._usd_module = omni.usd
+        self._kit_app_module = omni.kit.app
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -104,7 +109,7 @@ class StageIO:
 
     def _pump_app_updates(self, iterations: int) -> None:
         for _ in range(iterations):
-            self._app.update()
+            self._kit_app.update()
 
     def _pause_if_needed(self) -> bool:
         if self._timeline.is_playing():
@@ -128,3 +133,18 @@ class StageIO:
             return os.path.dirname(os.path.abspath(main_file))
         print("[StageIO] Attenzione: __main__.__file__ non disponibile. Uso os.getcwd() come fallback.")
         return os.getcwd()
+
+    # ------------------------------------------------------------------ #
+    # Cached accessors
+    # ------------------------------------------------------------------ #
+    @cached_property
+    def _timeline(self):
+        return self._timeline_module.get_timeline_interface()
+
+    @cached_property
+    def _usd_context(self):
+        return self._usd_module.get_context()
+
+    @cached_property
+    def _kit_app(self):
+        return self._kit_app_module.get_app()

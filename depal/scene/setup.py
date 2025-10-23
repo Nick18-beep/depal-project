@@ -8,17 +8,27 @@ import random
 import typing as T
 
 import numpy as np
-import omni.usd
-from pxr import Gf, Usd, UsdGeom, UsdPhysics
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from pxr import Gf, Usd, UsdGeom, UsdPhysics
 
 from depal.assets.materials import MaterialComponent, create_materials_from_directory
 from depal.scene.floor import FloorBuilder, FloorMaterialComponent
-from depal.spawners.boxes import spawn_basic_boxes
-from depal.spawners.containers import spawn_single_pallet
-from depal.spawners.lights import spawn_variable_random_lights
-from depal.spawners.objects import spawn_objects
 
 # Funzioni helper per la configurazione e la creazione di elementi della scena.
+
+
+_PXR_CACHE = None
+
+
+def _get_pxr_modules():
+    global _PXR_CACHE
+    if _PXR_CACHE is None:
+        from pxr import Gf, Usd, UsdGeom, UsdPhysics  # pylint: disable=import-outside-toplevel
+
+        _PXR_CACHE = (Gf, Usd, UsdGeom, UsdPhysics)
+    return _PXR_CACHE
 
 
 def setup_new_scene_for_image(simulation_app, omni_usd, img_number, total_images):
@@ -104,6 +114,8 @@ def setup_scene_floor(stage, floor_prim_path, all_pbr_components):
 
 def setup_scene_lighting(stage, light_cfg, light_base_path):
     """Istanzia luci casuali nella scena basate sulla configurazione."""
+    from depal.spawners.lights import spawn_variable_random_lights
+
     print(f"Creazione luci casuali in '{light_base_path}'.")
     lights = spawn_variable_random_lights(
         stage=stage,
@@ -121,6 +133,8 @@ def setup_scene_lighting(stage, light_cfg, light_base_path):
 
 def spawn_main_asset(stage, asset_cfg, parent_path_str, base_pos_np, materials_folder_str, img_num):
     """Istanzia un pallet o un container basato sulla configurazione."""
+    from depal.spawners.containers import spawn_single_pallet
+
     choice = asset_cfg.get("asset_type_choice_override") or random.choice(["pallet", "container"])
     details = asset_cfg[choice]
     prim_name = f"{details['prim_name_instance_base']}"
@@ -150,6 +164,8 @@ def spawn_main_asset(stage, asset_cfg, parent_path_str, base_pos_np, materials_f
 
 def spawn_additional_ycb_objects(stage, ycb_cfg):
     """Istanzia oggetti YCB aggiuntivi se abilitato nella configurazione."""
+    from depal.spawners.objects import spawn_objects
+
     if not ycb_cfg.get("enable", False):
         return []
     if not ycb_cfg.get("asset_list"):
@@ -183,6 +199,8 @@ def spawn_additional_ycb_objects(stage, ycb_cfg):
 
 def spawn_boxes_on_scene(stage, box_cfg, parent_path_str, base_pos_np, direct_mat_paths_list):
     """Istanzia box di base basati sulla configurazione."""
+    from depal.spawners.boxes import spawn_basic_boxes
+    Gf, _, _, _ = _get_pxr_modules()
     boxes_base_pos = np.array(
         [base_pos_np[0], base_pos_np[1], base_pos_np[2] + box_cfg["base_z_offset"]]
     )
@@ -251,7 +269,8 @@ import math
 # -----------------------------------------------------------------
 # 0.  estrai scala da Matrix4d – compatibile USD 22-24
 # -----------------------------------------------------------------
-def _extract_scale(mat: Gf.Matrix4d) -> Gf.Vec3d:
+def _extract_scale(mat: "Gf.Matrix4d") -> "Gf.Vec3d":
+    Gf, _, _, _ = _get_pxr_modules()
     """Restituisce (sx, sy, sz) anche se Matrix4d non ha ExtractScale()."""
     if hasattr(mat, "ExtractScale"):                      # USD ≥ 23
         return mat.ExtractScale()
@@ -266,7 +285,8 @@ def _extract_scale(mat: Gf.Matrix4d) -> Gf.Vec3d:
 # -----------------------------------------------------------------
 # helper: scala locale del SOLO prim container
 # -----------------------------------------------------------------
-def _local_scale(prim: Usd.Prim) -> Gf.Vec3d:
+def _local_scale(prim: "Usd.Prim") -> "Gf.Vec3d":
+    Gf, _, UsdGeom, _ = _get_pxr_modules()
     """
     Ritorna la scala (sx, sy, sz) definita sugli xformOp del prim stesso,
     ignorando i trasform parent e i figli. Compatibile USD 22-24.
@@ -293,7 +313,8 @@ def _local_scale(prim: Usd.Prim) -> Gf.Vec3d:
 # -----------------------------------------------------------------
 # 1.  trova il container / pallet
 # -----------------------------------------------------------------
-def _find_main_asset_prim(stage: Usd.Stage) -> str:
+def _find_main_asset_prim(stage: "Usd.Stage") -> str:
+    _, Usd, _, _ = _get_pxr_modules()
     for p in ("/World/ImportedPallet", "/World/ImportedContainer"):
         if stage.GetPrimAtPath(p).IsValid():
             return p
@@ -309,7 +330,8 @@ def _find_main_asset_prim(stage: Usd.Stage) -> str:
 # -----------------------------------------------------------------
 # 2.  bound locale (dimensioni, centro) – niente TRS del container
 # -----------------------------------------------------------------
-def _bbox_local(prim: Usd.Prim) -> T.Tuple[Gf.Vec3d, Gf.Vec3d]:
+def _bbox_local(prim: "Usd.Prim") -> T.Tuple["Gf.Vec3d", "Gf.Vec3d"]:
+    Gf, _, UsdGeom, _ = _get_pxr_modules()
     tok_def = (UsdGeom.Tokens.default
                if hasattr(UsdGeom.Tokens, "default")
                else UsdGeom.Tokens.default_)
@@ -323,12 +345,14 @@ def _bbox_local(prim: Usd.Prim) -> T.Tuple[Gf.Vec3d, Gf.Vec3d]:
 # 3.  utilities fisica + invisibilità
 # -----------------------------------------------------------------
 def _add_physics(prim):
+    _, Usd, _, UsdPhysics = _get_pxr_modules()
     prim = prim.GetPrim() if not isinstance(prim, Usd.Prim) else prim
     #UsdPhysics.RigidBodyAPI.Apply(prim).CreateRigidBodyEnabledAttr(True)
     UsdPhysics.CollisionAPI.Apply(prim)
 
 
 def _hide(prim):
+    _, _, UsdGeom, _ = _get_pxr_modules()
     img = UsdGeom.Imageable(prim)
     img.CreateVisibilityAttr().Set("invisible")
     gp = UsdGeom.Gprim(prim)
@@ -336,7 +360,8 @@ def _hide(prim):
     gp.CreateDisplayOpacityAttr().Set([0.0])
 
 
-def _quat_to_euler_xyz(q: Gf.Quatd) -> Gf.Vec3d:
+def _quat_to_euler_xyz(q: "Gf.Quatd") -> "Gf.Vec3d":
+    Gf, _, _, _ = _get_pxr_modules()
     """Converte quaternion → Eulero XYZ (°)."""
     w, x, y, z = q.GetReal(), q.GetImaginary()[0], q.GetImaginary()[1], q.GetImaginary()[2]
     # roll (X)
@@ -350,7 +375,8 @@ def _quat_to_euler_xyz(q: Gf.Quatd) -> Gf.Vec3d:
     yaw = math.degrees(math.atan2(siny, cosy))
     return Gf.Vec3d(roll, pitch, yaw)
 
-def _local_orientation(prim: Usd.Prim) -> Gf.Vec3d:
+def _local_orientation(prim: "Usd.Prim") -> "Gf.Vec3d":
+    Gf, _, UsdGeom, _ = _get_pxr_modules()
     """
     Restituisce orientamento locale (Euler XYZ in °).
     Priorità: xformOp:orient (quatd) → rotateXYZ → (0,0,0).
@@ -368,10 +394,11 @@ def _local_orientation(prim: Usd.Prim) -> Gf.Vec3d:
 # -----------------------------------------------------------------
 # 4.  crea pareti invisibili
 # -----------------------------------------------------------------
-def spawn_invisible_walls(stage: Usd.Stage,
+def spawn_invisible_walls(stage: "Usd.Stage",
                           suffix="__walls",
                           thickness=0.001,
                           extra_height=2.8) -> T.List[str]:
+    Gf, Usd, UsdGeom, UsdPhysics = _get_pxr_modules()
     """
     Crea 4 pareti invisibili attorno al container, scalate e ruotate come
     il container, con base a pavimento.
@@ -446,7 +473,8 @@ def spawn_invisible_walls(stage: Usd.Stage,
 # -----------------------------------------------------------------
 # 5.  Disattiva / rimuove pareti
 # -----------------------------------------------------------------
-def disable_walls(stage: Usd.Stage, wall_paths, remove=True):
+def disable_walls(stage: "Usd.Stage", wall_paths, remove=True):
+    _, _, UsdGeom, UsdPhysics = _get_pxr_modules()
     """Disabilita (o elimina) i collider specificati."""
     for p in wall_paths:
         prim = stage.GetPrimAtPath(p)
