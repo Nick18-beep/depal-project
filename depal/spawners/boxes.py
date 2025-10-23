@@ -86,8 +86,11 @@ def spawn_basic_boxes(
 
     created_box_prims_roots = [] # Memorizzeremo gli Xform radice degli asset/cubi
 
-    for i in range(num_boxes):
-        box_prim_name = f"BasicBox_{i}"
+    spawn_index = 0
+    created_box_prims_roots = []  # Memorizzeremo gli Xform radice degli asset/cubi
+
+    for _ in range(num_boxes):
+        box_prim_name = f"BasicBox_{spawn_index}"
         # Questo e il percorso del prim Xform radice per questo box/asset
         asset_root_prim_path = f"{parent_path}/{box_prim_name}"
 
@@ -295,6 +298,7 @@ def spawn_basic_boxes(
             add_update_semantics(asset_root_prim, semantic_label)
 
         created_box_prims_roots.append(asset_root_prim)
+        spawn_index += 1
 
     print(f"simple_box_spawner.py: Generazione di {len(created_box_prims_roots)} scatole completata.")
     return created_box_prims_roots
