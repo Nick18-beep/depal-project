@@ -33,7 +33,7 @@ def _get_pxr_modules():
 
 
 def setup_new_scene_for_image(simulation_app, omni_usd, img_number, total_images):
-    """Crea una nuova scena USD per l'immagine corrente."""
+    """Create a fresh USD stage for the given image index."""
     try:
         from isaacsim.core.utils.stage import create_new_stage
     except ImportError:
@@ -55,7 +55,7 @@ def create_scene_materials(
     base_material_usd_path_str,
     material_cfg,
 ):
-    """Crea materiali PBR da texture e restituisce i componenti e i percorsi."""
+    """Create PBR materials and return both components and prim paths."""
     log_info(f"Materiali generati da {texture_dir_path} in {base_material_usd_path_str}")
     components = create_materials_from_directory(
         stage=stage,
@@ -77,7 +77,7 @@ def create_scene_materials(
 
 
 def setup_scene_floor(stage, floor_prim_path, all_pbr_components):
-    """Aggiunge un pavimento alla scena e applica un materiale PBR casuale se disponibile."""
+    """Add a floor prim and optionally assign one of the generated PBR materials."""
     floor_material_comp: MaterialComponent | None = None
     if all_pbr_components:
         floor_material_comp = random.choice(all_pbr_components)
@@ -110,7 +110,7 @@ def setup_scene_floor(stage, floor_prim_path, all_pbr_components):
 
 
 def setup_scene_lighting(stage, light_cfg, light_base_path):
-    """Istanzia luci casuali nella scena basate sulla configurazione."""
+    """Spawn a configurable number of random lights within the scene."""
     from depal.spawners.lights import spawn_variable_random_lights
 
     log_info(f"Luci create in {light_base_path}")
@@ -129,7 +129,7 @@ def setup_scene_lighting(stage, light_cfg, light_base_path):
 
 
 def spawn_main_asset(stage, asset_cfg, parent_path_str, base_pos_np, materials_folder_str, img_num):
-    """Istanzia un pallet o un container basato sulla configurazione."""
+    """Instantiate the primary pallet/container asset for the current image."""
     from depal.spawners.containers import spawn_single_pallet
 
     choice = asset_cfg.get("asset_type_choice_override") or random.choice(["pallet", "container"])
@@ -160,7 +160,7 @@ def spawn_main_asset(stage, asset_cfg, parent_path_str, base_pos_np, materials_f
 
 
 def spawn_additional_ycb_objects(stage, ycb_cfg):
-    """Istanzia oggetti YCB aggiuntivi se abilitato nella configurazione."""
+    """Spawn optional YCB objects with configurable randomisation."""
     from depal.spawners.objects import spawn_objects
 
     if not ycb_cfg.get("enable", False):
@@ -195,7 +195,7 @@ def spawn_additional_ycb_objects(stage, ycb_cfg):
 
 
 def spawn_boxes_on_scene(stage, box_cfg, parent_path_str, base_pos_np, direct_mat_paths_list):
-    """Istanzia box di base basati sulla configurazione."""
+    """Scatter simple boxes over the scene according to configuration ranges."""
     from depal.spawners.boxes import spawn_basic_boxes
     Gf, _, _, _ = _get_pxr_modules()
     boxes_base_pos = np.array(
@@ -231,7 +231,7 @@ def spawn_boxes_on_scene(stage, box_cfg, parent_path_str, base_pos_np, direct_ma
 
 
 def setup_main_camera(stage, prims_utils_module, Gf_module, UsdGeom_module, cam_cfg, cam_path_str, scene_origin_np):
-    """Crea e configura la camera principale di Replicator con altezza Z variabile."""
+    """Create and randomise the main Replicator camera."""
     cam_height_min = cam_cfg.get('height_min', 5.0)
     cam_height_max = cam_cfg.get('height_max', 7.0)
     if cam_height_min > cam_height_max:
@@ -384,11 +384,13 @@ def _local_orientation(prim: "Usd.Prim") -> "Gf.Vec3d":
 # -----------------------------------------------------------------
 # 4.  crea pareti invisibili
 # -----------------------------------------------------------------
-def spawn_invisible_walls(stage: "Usd.Stage",
-                          suffix="__walls",
-                          thickness=0.001,
-                          extra_height=2.8) -> T.List[str]:
-    """Crea pareti invisibili attorno al container principale."""
+def spawn_invisible_walls(
+    stage: "Usd.Stage",
+    suffix="__walls",
+    thickness=0.001,
+    extra_height=2.8,
+) -> T.List[str]:
+    """Create invisible PhysX walls around the main container/pallet."""
     Gf, Usd, UsdGeom, UsdPhysics = _get_pxr_modules()
     tgt_path = _find_main_asset_prim(stage)
     tgt      = stage.GetPrimAtPath(tgt_path)
@@ -461,7 +463,7 @@ def spawn_invisible_walls(stage: "Usd.Stage",
 # 5.  Disattiva / rimuove pareti
 # -----------------------------------------------------------------
 def disable_walls(stage: "Usd.Stage", wall_paths, remove=True):
-    """Disabilita (o elimina) i collider specificati."""
+    """Disable (or delete) previously spawned invisible walls."""
     _, _, UsdGeom, UsdPhysics = _get_pxr_modules()
     for p in wall_paths:
         prim = stage.GetPrimAtPath(p)

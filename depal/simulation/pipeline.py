@@ -36,7 +36,10 @@ def clean_output_directory(root_dir: Path, keep: Iterable[str] = ("rgb", "camera
 
 
 class SimulationPipeline:
-    """Encapsulates the main simulation workflow."""
+    """High level orchestrator around scene setup, replicator, and optional gripping.
+
+    The pipeline is intentionally stateless apart from `self._last_spawned`, which
+    keeps track of the latest spawned prim paths for regeneration purposes."""
 
     def __init__(self, environment: SimulationEnvironment, script_dir: Path) -> None:
         self._env = environment
@@ -50,6 +53,12 @@ class SimulationPipeline:
         return self._last_spawned
 
     def run_generation(self, config: Dict[str, object], options: Sequence[str]) -> None:
+        """Generate a full dataset for each requested image.
+
+        Args:
+            config: Runtime configuration dictionary (parsed from config.yaml).
+            options: Optional modules to enable (e.g. grip/pinza).
+        """
         simulation_app = self._env.initialize()
         modules = self._env.modules
 
@@ -203,6 +212,12 @@ class SimulationPipeline:
             log_section(f"Immagine {img_idx}/{num_images} completata")
 
     def regenerate_data(self, config: Dict[str, object], options: Sequence[str]) -> None:
+        """Re-run replicator and picking on the existing frozen stage.
+
+        Args:
+            config: Current runtime configuration.
+            options: Modules requested via the REST endpoint.
+        """
         if not self._last_spawned.any():
             log_warning("Rigenerazione dati richiesta senza entita precedenti: operazione annullata")
             return
@@ -259,6 +274,10 @@ class SimulationPipeline:
     # Helpers
     # ------------------------------------------------------------------ #
     def _reset_stage(self, simulation_app) -> None:
+        """Clear Isaac stage and physics state before generating the next image.
+
+        This avoids accumulating simulation state between iterations.
+        """
         modules = self._env.modules
         world = modules.World()
         world.clear()

@@ -61,7 +61,7 @@ RGBA_Tuple = Tuple[int, int, int, int]
 
 
 def _calculate_focal_length_pixels(image_width_px, cam_focal_length_mm, cam_horizontal_aperture_mm):
-    """Calcola la lunghezza focale in pixel basata sulla larghezza dell'immagine."""
+    """Return the focal length expressed in pixels for a given camera setup."""
     if cam_horizontal_aperture_mm == 0:
         _error(" CAM_HORIZONTAL_APERTURE_MM non puo essere zero.")
         return None
@@ -69,6 +69,7 @@ def _calculate_focal_length_pixels(image_width_px, cam_focal_length_mm, cam_hori
 
 
 def _calculate_basic_depth_map(imgL_gray, imgR_gray, focal_length_px, baseline_m, max_depth_m=None):
+    """Stereo SGBM helper returning depth (in mm) and disparity."""
     min_disp = 0
     num_disp = 16 * 5
     block_size = 7
@@ -108,9 +109,7 @@ def _calculate_basic_depth_map(imgL_gray, imgR_gray, focal_length_px, baseline_m
     return depth_map, disparity
 
 def _save_depth_map_as_image_only(depth_map_mm, output_path, max_depth_m=None):
-    """
-    Salva la mappa di profondita colorata come immagine pura (senza assi, colorbar, ecc.).
-    """
+    """Persist a coloured preview of the depth map for debugging."""
     depth_display = depth_map_mm.copy()
     h, w = depth_display.shape
 
@@ -216,31 +215,30 @@ def process_stereo_images_minimal(
     left_image_path: str,
     right_image_path: str,
     output_folder: str,
-    image_width_px: int, # Dimensione effettiva dell'immagine di input
-    image_height_px: int, # Dimensione effettiva dell'immagine di input
+    image_width_px: int,
+    image_height_px: int,
     max_depth_meters: float,
-    base_filename: str ,
-    baseline_given:float,
+    base_filename: str,
+    baseline_given: float,
     cameraFocalLength,
-    cameraAperture
-    
-    ):
-    """
-    Funzione minimale per calcolare e salvare una mappa di profondita,
-    utilizzando caratteristiche fisse della fotocamera e dimensioni dell'immagine di input.
-
+    cameraAperture,
+) -> bool:
+    """Minimal stereo pipeline used when Replicator does not emit precomputed depth.
 
     Args:
-        left_image_path (str): Percorso dell'immagine sinistra.
-        right_image_path (str): Percorso dell'immagine destra.
-        output_folder (str): Cartella dove salvare i risultati.
-        image_width_px (int): Larghezza delle immagini di input in pixel.
-        image_height_px (int): Altezza delle immagini di input in pixel.
-        max_depth_meters (float, optional): Massima profondita da considerare (in metri).
-                                            Se None, la scala e automatica.
-        base_filename (str, optional): Nome base per i file di output.
+        left_image_path: Percorso dell'immagine sinistra.
+        right_image_path: Percorso dell'immagine destra.
+        output_folder: Cartella dove salvare i risultati.
+        image_width_px: Larghezza delle immagini di input in pixel.
+        image_height_px: Altezza delle immagini di input in pixel.
+        max_depth_meters: Massima profondita da considerare (in metri).
+        base_filename: Nome base per i file di output.
+        baseline_given: Distanza tra le camere (metri).
+        cameraFocalLength: Focale in millimetri.
+        cameraAperture: Apertura orizzontale in millimetri.
+
     Returns:
-        bool: True se l'operazione ha avuto successo, False altrimenti.
+        True se l'operazione ha avuto successo, False altrimenti.
     """
 
 
@@ -383,9 +381,14 @@ def _save_rgba(path: str, img_rgba: np.ndarray) -> None:
 
 
 def split_rgb_instance_segmentation(
-    *, image_path: str, color_mapping_path: str, output_path_prefix: str,
-    current_split_classes: Set[str], current_ignore_classes: Set[str]
+    *,
+    image_path: str,
+    color_mapping_path: str,
+    output_path_prefix: str,
+    current_split_classes: Set[str],
+    current_ignore_classes: Set[str],
 ) -> Tuple[Optional[str], Optional[str], bool]:
+    """Split an RGB instance segmentation image into per-instance masks."""
     if cv2 is None:
         _error("   Errore: cv2 non disponibile per split_rgb_instance_segmentation.")
         return None, None, False
@@ -446,11 +449,15 @@ def split_rgb_instance_segmentation(
     return final_output_png_path, final_output_json_path, True
 
 def run_replicator_data_generation(
-    simulation_app, timeline_ref, rep_module, carb_module,
-    rep_cfg: Dict, cam_path_str: str,
-   
-    output_dir_root: str
-):
+    simulation_app,
+    timeline_ref,
+    rep_module,
+    carb_module,
+    rep_cfg: Dict,
+    cam_path_str: str,
+    output_dir_root: str,
+) -> None:
+    """Main entry point for Replicator data generation and post processing."""
     _, _, Gf, _ = _get_pxr_modules()
     omni_usd = _get_omni_usd()
     if cv2 is None and rep_cfg.get("enable_segmentation_split", True):

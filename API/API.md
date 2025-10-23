@@ -1,158 +1,107 @@
-## 🚀 Riferimento API
+# API Reference
 
-Ecco l'elenco completo degli endpoint disponibili.
+All endpoints are served by the Flask application launched from `main.py`. Each request is processed asynchronously through the orchestrator queue, so the HTTP response only confirms that the job was accepted.
 
----
+## `GET /`
+Returns the server status together with the list of available endpoints.
 
-### `GET /`
-
-Endpoint radice che fornisce lo stato del server e una mappa degli altri endpoint disponibili. Utile per verificare che il server sia attivo e funzionante.
-
-* **Metodo**: `GET`
-* **Risposta di Successo (`200 OK`)**:
-    ```json
-    {
-      "status": "server_running",
-      "message": "Benvenuto nel server di simulazione Isaac Sim.",
-      "endpoints": {
-        "generate_scene": "POST /generate_scene",
-        "regenerate_data": "POST /regenerate_data",
-        "list_files": "GET /list_files",
-        "get_document": "GET /get_document/<path:filename>"
-      }
-    }
-    ```
+**Response 200**
+```json
+{
+  "status": "server_running",
+  "message": "Benvenuto nel server di simulazione Isaac Sim.",
+  "endpoints": {
+    "generate_scene": "POST /generate_scene",
+    "regenerate_data": "POST /regenerate_data",
+    "list_files": "GET /list_files",
+    "get_document": "GET /get_document/<path:filename>"
+  }
+}
+```
 
 ---
 
-### `POST /generate_scene`
+## `POST /generate_scene`
+Creates a brand-new scene. The orchestrator clears previous outputs, optionally loads a user supplied configuration, and then enqueues a `start_simulation` task.
 
-Avvia una **nuova simulazione da zero**, cancellando i risultati precedenti e potenzialmente caricando una nuova scena. Questo endpoint accetta due tipi di richieste: una semplice richiesta JSON o una richiesta `multipart/form-data` per caricare un file di configurazione.
+| Field          | Type                  | Description                                       |
+|----------------|-----------------------|---------------------------------------------------|
+| `options`      | `list[str]` (optional) | Extra modules to enable (e.g. `"rgb"`, `"grip"`) |
+| `config_file`  | file (optional)       | Custom `config.yaml` passed through multipart form|
 
-* **Metodo**: `POST`
-* **Logica**:
-    * Controlla se un'altra simulazione è in corso.
-    * Pulisce la directory di output da dati precedenti.
-    * Se viene fornito un file `config.yaml`, lo salva e lo usa per la simulazione.
-    * Aggiunge il task `start_simulation` alla coda.
-* **Body Richiesta (Caso 1: JSON)**: Per avviare la simulazione con una configurazione di default o pre-caricata.
-    ```json
-    {
-      "options": ["rgb", "depth"]
-    }
-    ```
-* **Body Richiesta (Caso 2: Multipart/Form-Data)**: Per fornire un file di configurazione personalizzato.
-    * `config_file`: Il file `config.yaml`.
-    * `options`: Una stringa JSON contenente le opzioni.
-* **Risposta di Successo (`200 OK`)**:
-    ```json
-    {
-      "status": "success",
-      "message": "Comando di avvio simulazione inviato."
-    }
-    ```
-* **Risposte di Errore**:
-    * **`409 Conflict`**: Se una simulazione è già in corso.
-        ```json
-        {"status": "error", "message": "Simulazione già in corso."}
-        ```
-    * **`500 Internal Server Error`**: In caso di errori durante l'elaborazione.
+### Example (JSON)
+```bash
+curl -X POST      -H "Content-Type: application/json"      -d '{"options": ["rgb", "depth"]}'      http://127.0.0.1:5000/generate_scene
+```
+
+### Example (multipart form)
+```bash
+curl -X POST      -F "config_file=@/path/to/my_config.yaml"      -F 'options=["rgb", "pinza"]'      http://127.0.0.1:5000/generate_scene
+```
+
+**Response 200**
+```json
+{"status": "success", "message": "Comando di avvio simulazione inviato."}
+```
+
+**Response 409** � another job is still running.
 
 ---
 
-### `POST /regenerate_data`
+## `POST /regenerate_data`
+Runs the replicator and the optional gripping modules on **the last generated scene** without clearing outputs. Useful to regenerate annotations or grasp attempts.
 
-Avvia un processo di **rigenerazione dei dati** sulla scena attualmente caricata, senza resettare la simulazione. È utile per generare nuovi output (es. punti di presa, bounding box) con parametri diversi.
+```json
+{
+  "options": ["grip", "pinza"]
+}
+```
 
-* **Metodo**: `POST`
-* **Logica**:
-    * Controlla se un'altra simulazione è in corso.
-    * Usa le `options` fornite per configurare gli annotatori o altri processi di generazione.
-    * Aggiunge il task `regenerate_data` alla coda.
-* **Body Richiesta (`JSON`)**:
-    ```json
-    {
-      "options": ["grip", "pinza"]
-    }
-    ```
-* **Risposta di Successo (`200 OK`)**:
-    ```json
-    {
-      "status": "success",
-      "message": "Comando di rigenerazione dati inviato."
-    }
-    ```
-* **Risposte di Errore**:
-    * **`409 Conflict`**: Se una simulazione è già in corso.
+**Response 200**
+```json
+{"status": "success", "message": "Comando di rigenerazione dati inviato."}
+```
+
+**Response 409** � refused because another job is active.
 
 ---
 
-### `GET /list_files`
+## `GET /list_files`
+Lists every file stored under the output directory configured in `main.py`.
 
-Restituisce un elenco di tutti i file presenti nella directory di output (`OUTPUT_DIRECTORY`).
+**Response 200**
+```json
+{
+  "status": "success",
+  "files": [
+    "active_config.yaml",
+    "img1/left/rgb/rgb_0000.png",
+    "img1/left/pick/grasp_results.json"
+  ]
+}
+```
 
-* **Metodo**: `GET`
-* **Risposta di Successo (`200 OK`)**: I percorsi sono relativi alla directory di output.
-    ```json
-    {
-      "status": "success",
-      "files": [
-        "active_config.yaml",
-        "img1/rgb_0.png",
-        "img1/depth_0.tiff",
-        "img1/annotations.json"
-      ]
-    }
-    ```
-* **Risposte di Errore**:
-    * **`404 Not Found`**: Se la directory di output non esiste.
+**Response 404** � output directory not found.
 
 ---
 
-### `GET /get_document/<path:filename>`
+## `GET /get_document/<path:filename>`
+Streams a single artifact from the output directory. The path must be relative (for example `img1/left/rgb/rgb_0000.png`).
 
-Permette di scaricare un singolo file dalla directory di output.
+**Response 200** � the file is returned as attachment.
 
-* **Metodo**: `GET`
-* **Parametri URL**:
-    * `filename`: Il percorso relativo del file da scaricare (es. `img1/rgb_0.png`).
-* **Risposta di Successo (`200 OK`)**: Il file richiesto viene inviato come allegato (`attachment`).
-* **Risposte di Errore**:
-    * **`404 Not Found`**: Se il file non viene trovato nel percorso specificato.
+**Response 404** � the file does not exist.
 
 ---
 
-## 📄 Esempi di Utilizzo (cURL)
+## Workflow summary
+1. `POST /generate_scene`
+   - loads configuration
+   - spawns assets and cameras
+   - runs replicator + gripping pipelines
+2. `POST /regenerate_data`
+   - reuses the frozen stage from the previous run
+   - regenerates outputs requested in `options`
+3. Use `GET /list_files` and `GET /get_document/...` to inspect or download results.
 
-1.  **Avviare una nuova simulazione (senza file di config):**
-    ```bash
-    curl -X POST -H "Content-Type: application/json" \
-    -d '{"options": ["rgb", "depth"]}' \
-    [http://127.0.0.1:5000/generate_scene](http://127.0.0.1:5000/generate_scene)
-    ```
-
-2.  **Avviare una nuova simulazione (CON un file di config):**
-    ```bash
-    curl -X POST \
-    -F "config_file=@/path/to/my_config.yaml" \
-    -F "options=[\"rgb\", \"depth\"]" \
-    [http://127.0.0.1:5000/generate_scene](http://127.0.0.1:5000/generate_scene)
-    ```
-
-3.  **Rigenerare i dati (es. punti di presa):**
-    ```bash
-    curl -X POST -H "Content-Type: application/json" \
-    -d '{"options": ["grip", "pinza"]}' \
-    [http://127.0.0.1:5000/regenerate_data](http://127.0.0.1:5000/regenerate_data)
-    ```
-
-4.  **Elencare tutti i file di output:**
-    ```bash
-    curl [http://127.0.0.1:5000/list_files](http://127.0.0.1:5000/list_files)
-    ```
-
-5.  **Scaricare un'immagine specifica:**
-    ```bash
-    # Salva il file come "output_image.png" nella cartella corrente
-    curl -o output_image.png [http://127.0.0.1:5000/get_document/img1/rgb_0.png](http://127.0.0.1:5000/get_document/img1/rgb_0.png)
-    ```
+All logs are written to stdout; set `DEPAL_LOG_LEVEL` to control verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`).

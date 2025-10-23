@@ -35,7 +35,7 @@ class CameraData:
 
 
 class GripWorkflow:
-    """Coordinates the surface gripper and pinza pipelines."""
+    """Orchestrates surface gripper sampling and articulated pinza evaluation."""
 
     def __init__(self, environment: SimulationEnvironment, script_dir: Path) -> None:
         self._env = environment
@@ -54,6 +54,7 @@ class GripWorkflow:
         spawned_entities: SpawnedEntities,
         grip_options: GripOptions,
     ) -> None:
+        """Execute gripping sequences depending on the requested options."""
         if not grip_options.any_enabled():
             return
 
@@ -117,6 +118,8 @@ class GripWorkflow:
         spawned_entities: SpawnedEntities,
         camera_data: CameraData,
     ) -> List[Dict[str, object]]:
+        """Sample potential grasp cones and render their projections."""
+
         from depal.grippers.surface_gripper import SurfaceGripperDirectScript
 
         box_paths = list(spawned_entities.boxes if box_cfg.get("enable") else [])
@@ -254,6 +257,8 @@ class GripWorkflow:
         camera_data: CameraData,
         k_matrix: Optional[np.ndarray],
     ) -> None:
+        """Evaluate articulated pinza grasps on the frozen stage."""
+
         from depal.grippers import pinza as pinza_module
 
         modules = self._env.modules
@@ -356,6 +361,7 @@ class GripWorkflow:
     # Camera helpers
     # --------------------------------------------------------------------- #
     def _collect_camera_data(self, stage, simulation_app) -> CameraData:
+        """Capture the stereo camera pose and matrices used in projection."""
         modules = self._env.modules
         pxr = modules.pxr
 
@@ -387,6 +393,7 @@ class GripWorkflow:
         )
 
     def _resolve_camera_matrix(self, img_idx: int, paths_cfg: Dict[str, object]) -> Optional[np.ndarray]:
+        """Load the intrinsic matrix produced by Replicator for the current image."""
         json_relative_path = Path(
             paths_cfg["output_replicator_dir_base"], f"img{img_idx}", "left", "camera_params", "camera_params_0000.json"
         )
@@ -407,6 +414,7 @@ class GripWorkflow:
         camera_data: CameraData,
         output_path: Path,
     ) -> None:
+        """Render grasp cones on the combined pick image."""
         sorted_projections = sorted(projections, key=lambda item: item.get("z_value", 0.0))
         for proj in sorted_projections:
             project_circle_topdown(
@@ -427,6 +435,7 @@ class GripWorkflow:
     # Scene helpers
     # --------------------------------------------------------------------- #
     def _check_hierarchy_for_attribute(self, stage, root_prim_path: str, attr_name: str) -> bool:
+        """Return True if any prim under `root_prim_path` exposes the requested attribute."""
         pxr = self._env.modules.pxr
         root_prim = stage.GetPrimAtPath(root_prim_path)
         if not root_prim:
@@ -438,6 +447,7 @@ class GripWorkflow:
         return False
 
     def _is_prim_deformable(self, stage, prim_path: str) -> bool:
+        """Check whether PhysX deformable body API is applied somewhere in the hierarchy."""
         pxr = self._env.modules.pxr
         root_prim = stage.GetPrimAtPath(prim_path)
         if not root_prim:
@@ -449,6 +459,7 @@ class GripWorkflow:
         return False
 
     def _find_physical_parts(self, stage, root_prim_path: str) -> List[str]:
+        """Gather prim paths that expose collision, including Xform wrappers."""
         pxr = self._env.modules.pxr
         physical_parts: List[str] = []
         root_prim = stage.GetPrimAtPath(root_prim_path)

@@ -105,7 +105,7 @@ class MaterialFactory:
         }
 
     def create_from_directory(self, texture_directory: Path) -> List[MaterialComponent]:
-        """Scan a directory and generate an OmniPBR material for each supported file."""
+        """Generate one OmniPBR material per supported texture file in the directory."""
         if not texture_directory.is_dir():
             log_warning(f"MaterialFactory: cartella texture inesistente ({texture_directory})")
             return []
@@ -125,6 +125,7 @@ class MaterialFactory:
     # Internals
     # ------------------------------------------------------------------ #
     def _build_single_material(self, texture_file: Path) -> Optional[MaterialComponent]:
+        """Create a single material component composed by prim, shader and schema."""
         material_path = f"{self._base_material_path}/{_safe_material_name(texture_file)}"
 
         try:
@@ -188,6 +189,7 @@ class MaterialFactory:
         return applied
 
     def _apply_emissive_probability(self, shader, applied: Dict[str, object]) -> None:
+        """Randomly disable emission based on the configured probability."""
         if "emissive_probability" not in self._config:
             return
 
@@ -208,6 +210,7 @@ class MaterialFactory:
             log_info(f"MaterialFactory: emissione disattivata (probabilita ON {probability * 100:.1f}%)")
 
     def _set_shader_input(self, shader, name: str, value_type, value) -> bool:
+        """Helper that guards against missing inputs on OmniPBR variants."""
         input_attr = shader.GetInput(name)
         if not input_attr:
             return False
@@ -233,7 +236,7 @@ def create_materials_from_directory(
     base_material_usd_path: str = "/World/Looks",
     material_config: Optional[Dict] = None,
 ) -> List[MaterialComponent]:
-    """Convenience helper mirroring the legacy public API."""
+    """Convenience wrapper returning legacy tuples (prim, [shader], schema)."""
     factory = MaterialFactory(
         stage,
         simulation_app,
