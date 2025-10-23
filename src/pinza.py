@@ -58,11 +58,17 @@ def setup_scene( target_prim_path,simulation_app):
         simulation_app.update()
     gripper_prim = stage.GetPrimAtPath(ARTICULATION_ROOT_PATH)
     if not gripper_prim.IsValid():
-        print(f"ERRORE FATALE: Impossibile trovare il prim del gripper a '{ARTICULATION_ROOT_PATH}'."); simulation_app.close(); return None, None
+        print(f"ERRORE FATALE: Impossibile trovare il prim del gripper a '{ARTICULATION_ROOT_PATH}'."); 
+        
+            
+        #simulation_app.close(); 
+        return None, None
     xform_api = UsdGeom.Xformable(gripper_prim)
     xform_api.AddScaleOp().Set(Gf.Vec3f(SCALE_FACTOR_GRIP, SCALE_FACTOR_GRIP, SCALE_FACTOR_GRIP))
     print(f"✓ Gripper caricato e scalato di un fattore {SCALE_FACTOR_GRIP} a '{ARTICULATION_ROOT_PATH}'")
 
+
+   
     apply_friction_to_gripper(stage, static_friction=200.0, dynamic_friction=200.0)
 
     robot = world.scene.add(Articulation(prim_path=ARTICULATION_ROOT_PATH, name="robotiq_gripper_system"))
@@ -225,10 +231,14 @@ def apply_friction_to_gripper(stage, static_friction=2.0, dynamic_friction=1.5, 
         f"{ARTICULATION_ROOT_PATH}/left_inner_finger_pad/Collision",
         f"{ARTICULATION_ROOT_PATH}/right_inner_finger_pad/Collision"
     ]
+    
 
     # 4. Applica il materiale ai collider delle dita
     for path in finger_collider_paths:
+        
         collider_prim = stage.GetPrimAtPath(path)
+        
+
         if collider_prim.IsValid():
             # Assicura che il prim abbia la CollisionAPI
             UsdPhysics.CollisionAPI.Apply(collider_prim)

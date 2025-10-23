@@ -141,6 +141,29 @@ def is_prim_deformable(stage: Usd.Stage, prim_path: str) -> bool:
     return False
 
 
+# Sostituisci la vecchia `find_pickable_parts` in main.py con questa
+
+def find_physical_parts(stage: Usd.Stage, root_prim_path: str) -> list:
+    """
+    Versione corretta: trova solo i prim GEOMETRICI (Mesh, Cube, etc.)
+    che hanno una forma di collisione, ignorando i gruppi Xform.
+    """
+    physical_parts = []
+    root_prim = stage.GetPrimAtPath(root_prim_path)
+    if not root_prim:
+        return []
+
+    # Usiamo PrimRange per iterare su tutti i discendenti dell'oggetto
+    for prim in Usd.PrimRange(root_prim):
+        
+        # --- CONDIZIONE AGGIORNATA ---
+        # Aggiungiamo il prim alla lista solo se:
+        # 1. Ha una collisione fisica.
+        # 2. È un tipo di geometria visibile (Gprim), non un contenitore (Xform).
+        if prim.HasAPI(UsdPhysics.CollisionAPI) and prim.IsA(UsdGeom.Gprim):
+            physical_parts.append(prim.GetPath().pathString)
+
+    return physical_parts
 def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cfg, ycb_spawn_cfg, config, paths_cfg,spawned_box_prim_paths, spawned_object_prim_paths):
 
             config_target_prim_to_grasp = "/World/MyTargetCube"
@@ -162,7 +185,7 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
             config_cone_height = 0.06
             config_cone_radius = 0.03
             config_move_speed_horizontal = 2
-            config_grasp_offset = config_cone_height/2 + 0.005
+            config_grasp_offset = config_cone_height/2 + 0.001
 
 
 
@@ -292,17 +315,25 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
                     prim_deformable=False
                     print(f"    Targeting box prim path: {box_path}")
 
-                    if is_prim_deformable(stage, box_path):
-                        print(f"   ATTENZIONE: L'oggetto '{box_path}' è deformabile. ")
+                    #if is_prim_deformable(stage, box_path):
+                    #    print(f"   ATTENZIONE: L'oggetto '{box_path}' è deformabile. ")
                         #prim_deformable=True
                         #continue # Salta il resto del loop per questo oggetto
 
                     # --- CODICE ALTERNATIVO (PIÙ COMPLESSO) ---
+                    try:
+                        if check_hierarchy_for_attribute(stage, box_path, "custom:is_pickable"):
+                            print(f"-> ⏭️  L'oggetto '{box_path}' o uno dei suoi figli ha il flag 'is_pickable'.")
+                            prim_deformable=True
 
-                    if check_hierarchy_for_attribute(stage, box_path, "custom:is_pickable"):
-                        print(f"-> ⏭️  L'oggetto '{box_path}' o uno dei suoi figli ha il flag 'is_pickable'.")
-                        prim_deformable=True
+                        physical_parts = find_physical_parts(stage, box_path)
+                        if not physical_parts:
+                            print(f"-> Nessuna parte fisica trovata per {box_prim_path_original}. Salto.")
+                            
+                    except:
+                        prim_deformable=False
 
+                    print(f"-> Trovate {len(physical_parts)} parti fisiche: {physical_parts}")
                    
                     # Non è strettamente necessario creare un'istanza qui se `sample_grasp_grid`
                     # potesse essere una funzione statica o non dipendente dallo stato dell'istanza
@@ -323,6 +354,8 @@ def grip_pinza(USA_GRIP, USA_PINZA, stage, simulation_app, img_idx, box_spawn_cf
                         prim_deformable=prim_deformable,
                         simulation_app=simulation_app
                     )
+
+                    
                     cone_positions = temp_sampler_instance.sample_grasp_grid(box_path)
                     del temp_sampler_instance
 
@@ -1037,9 +1070,6 @@ def get_document(filename):
         return jsonify({"error": "File non trovato"}), 404
 
 
-# ==============================================================================
-# BLOCCO MAIN MODIFICATO
-# ==============================================================================
 if __name__ == "__main__":
     server_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000, debug=False), daemon=True)
     server_thread.start()
@@ -1102,10 +1132,6 @@ if __name__ == "__main__":
                     image_output_directory = os.path.join(current_script_dir, config['paths']['output_replicator_dir_base'], f"img{config['simulation_setup']['num_images_to_generate']}")
                     
                     
-
-
-                    # Qui dovresti usare `options` per configurare il replicatore
-                    # Ad esempio, attivando/disattivando annotatori prima di lanciare la generazione
                     replicator_utils.run_replicator_data_generation(simulation_app, timeline, rep, carb, config['replicator'], config['paths']['camera_prim_usd'],image_output_directory)
                     for i in range(50):
                         simulation_app.update()
@@ -1134,7 +1160,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n--- Rilevato KeyboardInterrupt (CTRL+C). Chiusura in corso... ---")
     finally:
-        # --- Il tuo codice di cleanup qui ---
+        
         # if simulation_app:
         #     simulation_app.close()
         print("Programma terminato.")
