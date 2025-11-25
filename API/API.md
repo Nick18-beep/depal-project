@@ -1,15 +1,15 @@
-# API Reference
+ï»¿# API Reference
 
-All endpoints are served by the Flask application launched from `main.py`. Each request is processed asynchronously through the orchestrator queue, so the HTTP response only confirms that the job was accepted.
+All endpoints are served by the Flask app launched from `main.py`. Requests are enqueued asynchronously; the HTTP response only confirms acceptance.
 
 ## `GET /`
-Returns the server status together with the list of available endpoints.
+Returns server status and the list of available endpoints.
 
 **Response 200**
 ```json
 {
   "status": "server_running",
-  "message": "Benvenuto nel server di simulazione Isaac Sim.",
+  "message": "Welcome to the Isaac Sim simulation server.",
   "endpoints": {
     "generate_scene": "POST /generate_scene",
     "regenerate_data": "POST /regenerate_data",
@@ -22,47 +22,53 @@ Returns the server status together with the list of available endpoints.
 ---
 
 ## `POST /generate_scene`
-Creates a brand-new scene. The orchestrator clears previous outputs, optionally loads a user supplied configuration, and then enqueues a `start_simulation` task.
+Creates a new scene from scratch. The orchestrator clears previous outputs, optionally loads a user-supplied configuration, and enqueues a `start_simulation` task.
 
-| Field          | Type                  | Description                                       |
-|----------------|-----------------------|---------------------------------------------------|
-| `options`      | `list[str]` (optional) | Extra modules to enable (e.g. `"rgb"`, `"grip"`) |
-| `config_file`  | file (optional)       | Custom `config.yaml` passed through multipart form|
+| Field         | Type                   | Description                                          |
+|---------------|------------------------|------------------------------------------------------|
+| `options`     | `list[str]` (optional) | Extra modules to enable (e.g., `"rgb"`, `"grip"`)    |
+| `config_file` | file (optional)        | Custom `config.yaml` sent via multipart form data    |
 
 ### Example (JSON)
 ```bash
-curl -X POST      -H "Content-Type: application/json"      -d '{"options": ["rgb", "depth"]}'      http://127.0.0.1:5000/generate_scene
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"options": ["rgb", "depth"]}' \
+  http://127.0.0.1:5000/generate_scene
 ```
 
 ### Example (multipart form)
 ```bash
-curl -X POST      -F "config_file=@/path/to/my_config.yaml"      -F 'options=["rgb", "pinza"]'      http://127.0.0.1:5000/generate_scene
+curl -X POST \
+  -F "config_file=@/path/to/my_config.yaml" \
+  -F 'options=["rgb", "grip"]' \
+  http://127.0.0.1:5000/generate_scene
 ```
 
 **Response 200**
 ```json
-{"status": "success", "message": "Comando di avvio simulazione inviato."}
+{"status": "success", "message": "Start simulation command accepted."}
 ```
 
-**Response 409** – another job is still running.
+**Response 409** - refused because another job is running.
 
 ---
 
 ## `POST /regenerate_data`
-Runs the replicator and the optional gripping modules on **the last generated scene** without clearing outputs. Useful to regenerate annotations or grasp attempts.
+Runs the replicator and optional gripping modules on **the last generated scene** without clearing outputs. Useful to regenerate annotations or grasp attempts.
 
 ```json
 {
-  "options": ["grip", "pinza"]
+  "options": ["grip"]
 }
 ```
 
 **Response 200**
 ```json
-{"status": "success", "message": "Comando di rigenerazione dati inviato."}
+{"status": "success", "message": "Data regeneration command accepted."}
 ```
 
-**Response 409** – refused because another job is active.
+**Response 409** - refused because another job is active.
 
 ---
 
@@ -81,16 +87,15 @@ Lists every file stored under the output directory configured in `main.py`.
 }
 ```
 
-**Response 404** – output directory not found.
+**Response 404** - output directory not found.
 
 ---
 
 ## `GET /get_document/<path:filename>`
 Streams a single artifact from the output directory. The path must be relative (for example `img1/left/rgb/rgb_0000.png`).
 
-**Response 200** – the file is returned as attachment.
-
-**Response 404** – the file does not exist.
+**Response 200** - the file is returned as attachment.  
+**Response 404** - the file does not exist.
 
 ---
 
@@ -104,4 +109,4 @@ Streams a single artifact from the output directory. The path must be relative (
    - regenerates outputs requested in `options`
 3. Use `GET /list_files` and `GET /get_document/...` to inspect or download results.
 
-All logs are written to stdout; set `DEPAL_LOG_LEVEL` to control verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
+Logs go to stdout; set `DEPAL_LOG_LEVEL` to control verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
